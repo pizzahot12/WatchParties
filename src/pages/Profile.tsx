@@ -1,7 +1,28 @@
-import { User, Settings, LogOut, CreditCard, Shield, Palette } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { User as UserIcon, Settings, LogOut, CreditCard, Shield, Palette } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { supabase } from '../lib/supabase';
 
 export function Profile() {
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // If it's a demo user, we might need to manually reset the session in App.tsx
+    // but usually signOut handles it if it's a real Supabase session.
+    // For the demo-login event, we might need to reload or dispatch another event.
+    window.location.href = '/';
+  };
+
+  const username = user?.email?.split('@')[0] || 'User';
+  const email = user?.email || 'user@example.com';
+
   return (
     <div className="p-6 md:p-12 pb-24 max-w-4xl mx-auto">
       <h1 className="text-3xl font-display font-bold mb-8">My Profile</h1>
@@ -10,7 +31,7 @@ export function Profile() {
         <div className="relative">
           <div className="w-32 h-32 rounded-full p-1 bg-gradient-to-br from-green-400 to-blue-500">
             <img 
-              src="https://i.pravatar.cc/150?u=me" 
+              src={`https://i.pravatar.cc/150?u=${user?.id || 'me'}`} 
               alt="Profile" 
               className="w-full h-full rounded-full object-cover border-4 border-[#1A1A1A]"
             />
@@ -21,8 +42,8 @@ export function Profile() {
         </div>
         
         <div className="flex-1 text-center md:text-left">
-          <h2 className="text-2xl font-bold mb-1">Alex Chen</h2>
-          <p className="text-gray-400 mb-4">@alexc • Joined March 2024</p>
+          <h2 className="text-2xl font-bold mb-1">{username}</h2>
+          <p className="text-gray-400 mb-4">{email} • Joined March 2024</p>
           <div className="flex flex-wrap justify-center md:justify-start gap-3">
             <span className="px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 text-xs font-bold uppercase tracking-wider border border-purple-500/20">
               Pro Member
@@ -51,7 +72,7 @@ export function Profile() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
-          { icon: User, label: 'Account Settings', desc: 'Manage your personal details' },
+          { icon: UserIcon, label: 'Account Settings', desc: 'Manage your personal details' },
           { icon: Palette, label: 'Appearance', desc: 'Theme and player customization' },
           { icon: Shield, label: 'Privacy & Security', desc: 'Control who sees your activity' },
           { icon: CreditCard, label: 'Billing', desc: 'Manage your subscription' },
@@ -69,7 +90,7 @@ export function Profile() {
       </div>
 
       <div className="mt-8 flex justify-center">
-        <Button variant="danger" className="w-full md:w-auto px-8">
+        <Button variant="danger" className="w-full md:w-auto px-8" onClick={handleLogout}>
           <LogOut className="w-4 h-4 mr-2" />
           Log Out
         </Button>

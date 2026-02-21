@@ -1,8 +1,10 @@
-import { NavLink } from 'react-router-dom';
-import { Home, Users, Server, User, Play, Monitor } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { Home, Users, Server, User, Play, Monitor, LogOut } from 'lucide-react';
 import { cn } from '../ui/Button';
+import { supabase } from '../../lib/supabase';
 
 export function Sidebar() {
+  const navigate = useNavigate();
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: Play, label: 'Movies', path: '/movies' },
@@ -11,6 +13,11 @@ export function Sidebar() {
     { icon: Server, label: 'Servers', path: '/servers' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/';
+  };
 
   return (
     <aside className="hidden lg:flex flex-col w-64 h-screen fixed left-0 top-0 bg-[#121212] border-r border-white/5 z-50">
@@ -44,9 +51,20 @@ export function Sidebar() {
         ))}
       </nav>
 
+      {/* Logout Button */}
+      <div className="px-4 py-2">
+        <button 
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-400/5 transition-all duration-200 group"
+        >
+          <LogOut className="w-5 h-5" />
+          <span>Log Out</span>
+        </button>
+      </div>
+
       {/* User Status */}
       <div className="p-4 border-t border-white/5 bg-[#0A0A0A]">
-        <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group">
+        <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group" onClick={() => navigate('/profile')}>
           <div className="relative">
             <img 
               src="https://i.pravatar.cc/150?u=me" 
@@ -71,6 +89,7 @@ export function MobileNav() {
     { icon: Play, label: 'Movies', path: '/movies' },
     { icon: Users, label: 'Friends', path: '/friends' },
     { icon: Server, label: 'Servers', path: '/servers' },
+    { icon: User, label: 'Profile', path: '/profile' },
   ];
 
   return (
