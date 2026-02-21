@@ -1,28 +1,103 @@
-import React, { useState } from 'react';
-import { serversList } from '../data/mockData';
-import { Server as ServerIcon, Plus, RefreshCw, Wifi, WifiOff, X, Settings, Shield, Link as LinkIcon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Server as ServerIcon, Plus, RefreshCw, Wifi, WifiOff, X, Settings, Shield, Link as LinkIcon, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { motion, AnimatePresence } from 'motion/react';
 
+interface ServerData {
+  id: string;
+  name: string;
+  type: 'plex' | 'jellyfin';
+  url: string;
+  token: string;
+  status: 'online' | 'offline' | 'connecting';
+  librarySize: number;
+  userCount: number;
+}
+
 export function Servers() {
+  const [servers, setServers] = useState<ServerData[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [serverType, setServerType] = useState<'plex' | 'jellyfin'>('plex');
   const [serverName, setServerName] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [serverToken, setServerToken] = useState('');
-
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load servers from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('streamparty_servers');
+    if (saved) {
+      setServers(JSON.parse(saved));
+    }
+  }, []);
+
+  // Save servers to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem('streamparty_servers', JSON.stringify(servers));
+  }, [servers]);
+
+  const testJellyfinConnection = async (url: string, token: string) => {
+    try {
+      // Clean URL (remove trailing slash)
+      const baseUrl = url.replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/System/Info/Public?api_key=${token}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (!response.ok) throw new Error('Server returned an error. Check URL and Token.');
+      
+      const data = await response.json();
+      return { success: true, data };
+    } catch (err: any) {
+      console.error('Connection error:', err);
+      throw new Error(err.message || 'Failed to connect to server');
+    }
+  };
 
   const handleAddServer = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsConnecting(true);
+    setError(null);
     
-    // Simulate connection process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    alert(`Successfully connected to ${serverName}!`);
-    setIsConnecting(false);
-    setShowAddModal(false);
+    try {
+      if (serverType === 'jellyfin') {
+        await testJellyfinConnection(serverUrl, serverToken);
+      } else {
+        // Plex simulation for now as it requires complex OAuth
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+
+      const newServer: ServerData = {
+        id: `srv-${Date.now()}`,
+        name: serverName,
+        type: serverType,
+        url: serverUrl,
+        token: serverToken,
+        status: 'online',
+        librarySize: 0, // In a real app, we'd fetch this
+        userCount: 1
+      };
+
+      setServers([...servers, newServer]);
+      setShowAddModal(false);
+      setServerName('');
+      setServerUrl('');
+      setServerToken('');
+      
+      alert(`Successfully connected to ${serverName}!`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const deleteServer = (id: string) => {
+    if (confirm('Are you sure you want to disconnect this server?')) {
+      setServers(servers.filter(s => s.id !== id));
+    }
   };
 
   return (
@@ -39,7 +114,7 @@ export function Servers() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {serversList.map((server) => (
+        {servers.map((server) => (
           <div key={server.id} className="bg-[#1A1A1A] border border-white/5 rounded-xl p-6 relative overflow-hidden group hover:border-white/10 transition-all">
             <div className="flex items-start justify-between mb-6">
               <div className="flex items-center gap-4">
@@ -50,7 +125,7 @@ export function Servers() {
                 </div>
                 <div>
                   <h3 className="font-bold text-lg">{server.name}</h3>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">{server.type}</p>
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">{server.type} • {new URL(server.url).hostname}</p>
                 </div>
               </div>
               <div className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
@@ -78,9 +153,14 @@ export function Servers() {
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Sync
               </Button>
-              <Button variant="secondary" size="sm" className="w-full">
-                <Settings className="w-4 h-4 mr-2" />
-                Manage
+              <Button 
+                variant="danger" 
+                size="sm" 
+                className="w-full"
+                onClick={() => deleteServer(server.id)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Remove
               </Button>
             </div>
           </div>
@@ -175,13 +255,13 @@ export function Servers() {
                         onChange={(e) => setServerUrl(e.target.value)}
                         required
                         className="w-full bg-[#1A1A1A] border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all"
-                        placeholder="https://your-server.com:32400"
+                        placeholder="https://your-server.com:8096"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">Access Token / API Key</label>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">API Key</label>
                     <div className="relative">
                       <Shield className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                       <input 
@@ -196,6 +276,12 @@ export function Servers() {
                   </div>
                 </div>
 
+                {error && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs">
+                    {error}
+                  </div>
+                )}
+
                 <Button 
                   type="submit" 
                   disabled={isConnecting}
@@ -206,7 +292,7 @@ export function Servers() {
                       <RefreshCw className="w-5 h-5 animate-spin" />
                       Connecting...
                     </div>
-                  ) : 'Test Connection'}
+                  ) : 'Connect Server'}
                 </Button>
               </form>
             </motion.div>

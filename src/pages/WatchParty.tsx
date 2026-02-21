@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, FormEvent, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { featuredMedia, trendingMedia, mockChatMessages, friendsList } from '../data/mockData';
+import { featuredMedia, trendingMedia, mockChatMessages, friendsList, libraryMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize } from 'lucide-react';
+import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
@@ -10,7 +10,7 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export function WatchParty() {
   const { id } = useParams();
-  const media = [...trendingMedia, featuredMedia].find(m => m.id === id) || featuredMedia;
+  const media = [...trendingMedia, featuredMedia, ...libraryMedia].find(m => m.id === id) || featuredMedia;
   
   const [activeTab, setActiveTab] = useState<'chat' | 'people'>('chat');
   const [unreadMessages, setUnreadMessages] = useState(0);
@@ -185,19 +185,9 @@ export function WatchParty() {
     type: 'video' as const,
     sources: [
       {
-        src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4',
-        type: 'video/mp4',
-        size: 576,
-      },
-      {
-        src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-720p.mp4',
-        type: 'video/mp4',
+        src: media.streamUrl || 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4',
+        type: media.streamUrl?.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/mp4',
         size: 720,
-      },
-      {
-        src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-1080p.mp4',
-        type: 'video/mp4',
-        size: 1080,
       }
     ],
     poster: media.backdropUrl,
@@ -208,15 +198,9 @@ export function WatchParty() {
         srclang: 'en',
         src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-HD.en.vtt',
         default: true,
-      },
-      {
-        kind: 'captions',
-        label: 'Français',
-        srclang: 'fr',
-        src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-HD.fr.vtt',
-      },
+      }
     ],
-  }), [media.backdropUrl]);
+  }), [media.backdropUrl, media.streamUrl]);
 
   const plyrOptions = useMemo(() => ({
     controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],

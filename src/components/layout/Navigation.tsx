@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, Users, Server, User, Play, Monitor, LogOut } from 'lucide-react';
+import { Home, Users, Server, User, Play, Monitor, LogOut, Library } from 'lucide-react';
 import { cn } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
 
@@ -9,6 +9,7 @@ export function Sidebar() {
     { icon: Home, label: 'Home', path: '/' },
     { icon: Play, label: 'Movies', path: '/movies' },
     { icon: Monitor, label: 'TV Shows', path: '/tv-shows' },
+    { icon: Library, label: 'Library', path: '/library' },
     { icon: Users, label: 'Friends', path: '/friends' },
     { icon: Server, label: 'Servers', path: '/servers' },
     { icon: User, label: 'Profile', path: '/profile' },
@@ -87,8 +88,8 @@ export function MobileNav() {
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: Play, label: 'Movies', path: '/movies' },
+    { icon: Library, label: 'Library', path: '/library' },
     { icon: Users, label: 'Friends', path: '/friends' },
-    { icon: Server, label: 'Servers', path: '/servers' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 

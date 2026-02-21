@@ -10,6 +10,7 @@ import { Home } from './pages/Home';
 import { Friends } from './pages/Friends';
 import { Servers } from './pages/Servers';
 import { Profile } from './pages/Profile';
+import { Library } from './pages/Library';
 import { WatchParty } from './pages/WatchParty';
 import { Details } from './pages/Details';
 import { Login } from './pages/Login';
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="/my-list" element={<MediaPage title="My List" type="mylist" />} />
           <Route path="/friends" element={<Friends />} />
           <Route path="/servers" element={<Servers />} />
+          <Route path="/library" element={<Library />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/details/:id" element={<Details />} />
           <Route path="/watch/:id" element={<WatchParty />} />
