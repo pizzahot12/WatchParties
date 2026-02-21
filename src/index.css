@@ -29,6 +29,10 @@ body {
   @apply bg-background text-white font-sans antialiased;
 }
 
+:root {
+  --plyr-color-main: #00b3ff;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

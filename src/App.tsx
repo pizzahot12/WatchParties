@@ -11,6 +11,7 @@ import { Servers } from './pages/Servers';
 import { Profile } from './pages/Profile';
 import { WatchParty } from './pages/WatchParty';
 import { Details } from './pages/Details';
+import { Login } from './pages/Login';
 
 // Placeholder components for pages not yet implemented
 function Placeholder({ title }: { title: string }) {
@@ -25,17 +26,17 @@ function Placeholder({ title }: { title: string }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/friends" element={<Friends />} />
-          <Route path="/servers" element={<Servers />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/details/:id" element={<Details />} />
-          <Route path="/watch/:id" element={<WatchParty />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/" element={<Layout><Home /></Layout>} />
+        <Route path="/friends" element={<Layout><Friends /></Layout>} />
+        <Route path="/servers" element={<Layout><Servers /></Layout>} />
+        <Route path="/profile" element={<Layout><Profile /></Layout>} />
+        <Route path="/details/:id" element={<Layout><Details /></Layout>} />
+        <Route path="/watch/:id" element={<WatchParty />} />
+        <Route path="/category/:type" element={<Layout><Placeholder title="Category" /></Layout>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </BrowserRouter>
   );
 }

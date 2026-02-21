@@ -50,17 +50,24 @@ export function Home() {
       {/* Categories */}
       <div className="px-6 md:px-12 mt-8 mb-8 overflow-x-auto">
         <div className="flex gap-3 min-w-max">
-          {['All', 'Movies', 'TV Shows', 'Live', 'My List'].map((cat, i) => (
-            <button 
-              key={cat}
+          {[
+            { label: 'All', path: '/' },
+            { label: 'Movies', path: '/category/movies' },
+            { label: 'TV Shows', path: '/category/tv' },
+            { label: 'Live', path: '/category/live' },
+            { label: 'My List', path: '/category/mylist' }
+          ].map((cat, i) => (
+            <Link 
+              key={cat.label}
+              to={cat.path}
               className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
                 i === 0 
                   ? 'bg-white text-black' 
                   : 'bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              {cat}
-            </button>
+              {cat.label}
+            </Link>
           ))}
         </div>
       </div>

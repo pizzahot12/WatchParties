@@ -2,20 +2,42 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { featuredMedia, trendingMedia, mockChatMessages, friendsList } from '../data/mockData';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize } from 'lucide-react';
+import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, UserPlus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { DashPlayer } from '../components/DashPlayer';
+import { supabase } from '../lib/supabase';
+import { useJellyfinStore } from '../store/jellyfinStore';
 
 export function WatchParty() {
   const { id } = useParams();
+  const { serverUrl, accessToken, userId } = useJellyfinStore();
   const media = [...trendingMedia, featuredMedia].find(m => m.id === id) || featuredMedia;
   
   const [activeTab, setActiveTab] = useState<'chat' | 'people'>('chat');
-  const [messages, setMessages] = useState(mockChatMessages);
+  const [messages, setMessages] = useState<any[]>(mockChatMessages);
   const [newMessage, setNewMessage] = useState('');
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [friendSearch, setFriendSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  
+  // Sync State
+  const [remoteTime, setRemoteTime] = useState<number>(0);
+  const [isHost, setIsHost] = useState(true); // Default to host for demo
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Construct MPD URL
+  // If we have a server URL, use it. Otherwise fallback to a demo DASH stream.
+  const mpdUrl = serverUrl 
+    ? `${serverUrl}/Videos/${id}/stream.mpd?static=true` 
+    : 'https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd';
+
+  const plyrOptions = {
+    controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+    settings: ['captions', 'quality', 'speed', 'audio'],
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -25,20 +47,78 @@ export function WatchParty() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = (e: FormEvent) => {
+  // Supabase Realtime
+  useEffect(() => {
+    const channel = supabase.channel(`room:${id}`, {
+      config: {
+        broadcast: { self: true },
+        presence: { key: userId || 'guest' },
+      },
+    });
+
+    channel
+      .on('broadcast', { event: 'message' }, ({ payload }) => {
+        setMessages((prev) => [...prev, payload]);
+      })
+      .on('broadcast', { event: 'sync' }, ({ payload }) => {
+        if (!isHost) {
+          setRemoteTime(payload.currentTime);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, isHost, userId]);
+
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
     const msg = {
       id: Date.now().toString(),
-      userId: 'me',
+      userId: userId || 'me',
       content: newMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type: 'text' as const
     };
 
+    // Optimistic update
     setMessages([...messages, msg]);
     setNewMessage('');
+
+    // Broadcast message
+    await supabase.channel(`room:${id}`).send({
+      type: 'broadcast',
+      event: 'message',
+      payload: msg,
+    });
+  };
+
+  const handleTimeUpdate = (currentTime: number) => {
+    if (isHost) {
+      // Throttle updates in a real app
+      supabase.channel(`room:${id}`).send({
+        type: 'broadcast',
+        event: 'sync',
+        payload: { currentTime },
+      });
+    }
+  };
+
+  const handleSearchFriend = async () => {
+    // Mock search or query Supabase profiles
+    if (!friendSearch) return;
+    
+    // Example: const { data } = await supabase.from('profiles').select('*').ilike('username', `%${friendSearch}%`);
+    // setSearchResults(data || []);
+    
+    // Mock result
+    setSearchResults([
+      { id: '101', username: 'Alice', avatarUrl: 'https://i.pravatar.cc/150?u=alice' },
+      { id: '102', username: 'Bob', avatarUrl: 'https://i.pravatar.cc/150?u=bob' },
+    ].filter(u => u.username.toLowerCase().includes(friendSearch.toLowerCase())));
   };
 
   return (
@@ -54,57 +134,24 @@ export function WatchParty() {
           </Link>
         </div>
 
-        {/* Video Placeholder */}
+        {/* Video Player */}
         <div 
-          className="relative w-full h-full bg-gray-900 flex items-center justify-center group"
+          className="relative w-full h-full bg-black flex items-center justify-center group"
           onMouseEnter={() => setShowControls(true)}
           onMouseLeave={() => setShowControls(false)}
         >
-          {/* Simulated Video Content */}
-          <img 
-            src={media.backdropUrl} 
-            alt="Video Content" 
-            className="w-full h-full object-contain opacity-50"
+          <DashPlayer 
+            source={mpdUrl}
+            options={plyrOptions}
+            onTimeUpdate={handleTimeUpdate}
+            initialTime={remoteTime}
+            isHost={isHost}
           />
-          
-          {/* Custom Controls Overlay */}
-          <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 flex flex-col justify-end p-6 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-            <div className="mb-4">
-              <h2 className="text-2xl font-bold mb-2">{media.title}</h2>
-              {/* Progress Bar */}
-              <div className="w-full h-1 bg-white/20 rounded-full cursor-pointer group/progress">
-                <div className="h-full bg-green-500 w-[35%] relative">
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover/progress:opacity-100 transition-opacity shadow-lg" />
-                </div>
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-2 font-mono">
-                <span>24:15</span>
-                <span>{media.duration}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                {/* Play/Pause, Volume, etc would go here */}
-              </div>
-              <div className="flex items-center gap-4">
-                <button className="p-2 hover:bg-white/10 rounded-full">
-                  <Mic className="w-5 h-5" />
-                </button>
-                <button className="p-2 hover:bg-white/10 rounded-full">
-                  <Video className="w-5 h-5" />
-                </button>
-                <button className="p-2 hover:bg-white/10 rounded-full md:hidden" onClick={() => setIsFullscreen(!isFullscreen)}>
-                  {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
       {/* Sidebar (Chat & People) */}
-      <div className="w-full md:w-96 bg-[#121212] border-l border-white/5 flex flex-col h-[60vh] md:h-full">
+      <div className="w-full md:w-96 bg-[#121212] border-l border-white/5 flex flex-col h-[60vh] md:h-full relative">
         {/* Tabs */}
         <div className="flex border-b border-white/5">
           <button 
@@ -121,7 +168,7 @@ export function WatchParty() {
               activeTab === 'people' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
             }`}
           >
-            <Users className="w-4 h-4" /> People (4)
+            <Users className="w-4 h-4" /> People ({friendsList.length})
           </button>
         </div>
 
@@ -130,15 +177,15 @@ export function WatchParty() {
           {activeTab === 'chat' ? (
             <div className="space-y-4">
               {messages.map((msg) => (
-                <div key={msg.id} className={`flex gap-3 ${msg.userId === 'me' ? 'flex-row-reverse' : ''}`}>
+                <div key={msg.id} className={`flex gap-3 ${msg.userId === (userId || 'me') ? 'flex-row-reverse' : ''}`}>
                   <img 
-                    src={msg.userId === 'me' ? 'https://i.pravatar.cc/150?u=me' : (friendsList.find(u => u.id === msg.userId)?.avatarUrl || 'https://i.pravatar.cc/150')} 
+                    src={msg.userId === (userId || 'me') ? 'https://i.pravatar.cc/150?u=me' : (friendsList.find(u => u.id === msg.userId)?.avatarUrl || 'https://i.pravatar.cc/150')} 
                     alt="Avatar" 
                     className="w-8 h-8 rounded-full object-cover mt-1 flex-shrink-0"
                   />
-                  <div className={`max-w-[80%] flex flex-col ${msg.userId === 'me' ? 'items-end' : 'items-start'}`}>
+                  <div className={`max-w-[80%] flex flex-col ${msg.userId === (userId || 'me') ? 'items-end' : 'items-start'}`}>
                     <div className={`px-4 py-2 rounded-2xl text-sm ${
-                      msg.userId === 'me' 
+                      msg.userId === (userId || 'me')
                         ? 'bg-green-600 text-white rounded-tr-none' 
                         : 'bg-white/10 text-gray-200 rounded-tl-none'
                     }`}>
@@ -152,6 +199,13 @@ export function WatchParty() {
             </div>
           ) : (
             <div className="space-y-2">
+              <button 
+                onClick={() => setShowAddFriend(true)}
+                className="w-full py-3 mb-4 border border-dashed border-white/20 rounded-xl flex items-center justify-center gap-2 text-gray-400 hover:text-white hover:border-white/40 transition-all"
+              >
+                <UserPlus className="w-4 h-4" /> Add Friend
+              </button>
+              
               {friendsList.map((user) => (
                 <div key={user.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-3">
@@ -198,6 +252,57 @@ export function WatchParty() {
             </form>
           </div>
         )}
+
+        {/* Add Friend Modal */}
+        <AnimatePresence>
+          {showAddFriend && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+              <div className="w-full h-full bg-[#121212] flex flex-col">
+                <div className="flex items-center justify-between p-4 border-b border-white/10">
+                  <h3 className="font-bold">Add Friend</h3>
+                  <button onClick={() => setShowAddFriend(false)} className="p-2 hover:bg-white/10 rounded-full">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-4">
+                  <div className="flex gap-2 mb-4">
+                    <input 
+                      type="text" 
+                      placeholder="Search username..." 
+                      className="flex-1 bg-[#1A1A1A] rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-green-500"
+                      value={friendSearch}
+                      onChange={(e) => setFriendSearch(e.target.value)}
+                    />
+                    <button 
+                      onClick={handleSearchFriend}
+                      className="bg-green-600 px-4 py-2 rounded-lg font-medium"
+                    >
+                      Search
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {searchResults.map(user => (
+                      <div key={user.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <img src={user.avatarUrl} className="w-8 h-8 rounded-full" />
+                          <span>{user.username}</span>
+                        </div>
+                        <button className="text-xs bg-white/10 hover:bg-green-600 px-3 py-1 rounded-full transition-colors">
+                          Add
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

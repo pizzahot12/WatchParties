@@ -18,7 +18,7 @@ export function Layout({ children }: LayoutProps) {
       
       <main className={`
         min-h-screen transition-all duration-300
-        ${!isWatchParty ? 'lg:pl-64 pb-20 lg:pb-0' : ''}
+        ${!isWatchParty ? 'xl:pl-64 pb-20 xl:pb-0' : ''}
       `}>
         <AnimatePresence mode="wait">
           <motion.div
