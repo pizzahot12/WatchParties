@@ -1,17 +1,19 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Users, Server, User, Play } from 'lucide-react';
+import { Home, Users, Server, User, Play, Monitor } from 'lucide-react';
 import { cn } from '../ui/Button';
 
 export function Sidebar() {
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
+    { icon: Play, label: 'Movies', path: '/movies' },
+    { icon: Monitor, label: 'TV Shows', path: '/tv-shows' },
     { icon: Users, label: 'Friends', path: '/friends' },
     { icon: Server, label: 'Servers', path: '/servers' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
   return (
-    <aside className="hidden xl:flex flex-col w-64 h-screen fixed left-0 top-0 bg-[#121212] border-r border-white/5 z-50">
+    <aside className="hidden lg:flex flex-col w-64 h-screen fixed left-0 top-0 bg-[#121212] border-r border-white/5 z-50">
       {/* Logo */}
       <div className="p-6 flex items-center gap-2">
         <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-green-500/20">
@@ -21,7 +23,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-4 space-y-1">
+      <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto custom-scrollbar">
         <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Menu</p>
         {navItems.map((item) => (
           <NavLink
@@ -66,13 +68,13 @@ export function Sidebar() {
 export function MobileNav() {
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
+    { icon: Play, label: 'Movies', path: '/movies' },
     { icon: Users, label: 'Friends', path: '/friends' },
     { icon: Server, label: 'Servers', path: '/servers' },
-    { icon: User, label: 'Profile', path: '/profile' },
   ];
 
   return (
-    <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-[#121212]/95 backdrop-blur-xl border-t border-white/10 z-50 pb-safe">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-[#121212]/95 backdrop-blur-xl border-t border-white/10 z-50 pb-safe">
       <div className="flex justify-around items-center h-16 px-2">
         {navItems.map((item) => (
           <NavLink

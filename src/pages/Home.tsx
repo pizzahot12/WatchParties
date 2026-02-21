@@ -52,16 +52,16 @@ export function Home() {
         <div className="flex gap-3 min-w-max">
           {[
             { label: 'All', path: '/' },
-            { label: 'Movies', path: '/category/movies' },
-            { label: 'TV Shows', path: '/category/tv' },
-            { label: 'Live', path: '/category/live' },
-            { label: 'My List', path: '/category/mylist' }
+            { label: 'Movies', path: '/movies' },
+            { label: 'TV Shows', path: '/tv-shows' },
+            { label: 'Live', path: '/live' },
+            { label: 'My List', path: '/my-list' }
           ].map((cat, i) => (
             <Link 
               key={cat.label}
               to={cat.path}
               className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                i === 0 
+                cat.path === '/' 
                   ? 'bg-white text-black' 
                   : 'bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white'
               }`}

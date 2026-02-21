@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { featuredMedia, trendingMedia, mockChatMessages, friendsList } from '../data/mockData';
 import { Button } from '../components/ui/Button';
@@ -6,6 +6,7 @@ import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Min
 import { motion, AnimatePresence } from 'motion/react';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
+import { supabase } from '../lib/supabase';
 
 export function WatchParty() {
   const { id } = useParams();
@@ -18,8 +19,115 @@ export function WatchParty() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const [plyrInstance, setPlyrInstance] = useState<any>(null);
+  const isRemoteAction = useRef(false);
+  const channelRef = useRef<any>(null);
 
-  const videoSource = {
+  // Callback ref to capture the Plyr instance when it's ready
+  const setPlayerRef = (node: any) => {
+    if (node) {
+      playerRef.current = node;
+      // The plyr instance is usually available on the .plyr property of the component ref
+      if (node.plyr && !plyrInstance) {
+        setPlyrInstance(node.plyr);
+      } else if (!node.plyr) {
+        // If not immediately available, poll briefly
+        const interval = setInterval(() => {
+          if (node.plyr) {
+            setPlyrInstance(node.plyr);
+            clearInterval(interval);
+          }
+        }, 50);
+        setTimeout(() => clearInterval(interval), 2000); // Stop polling after 2s
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase.channel(`watch-party-${id}`, {
+      config: {
+        broadcast: { self: false },
+      },
+    });
+
+    channelRef.current = channel;
+
+    channel
+      .on('broadcast', { event: 'video-state' }, ({ payload }) => {
+        const player = plyrInstance || playerRef.current?.plyr;
+        if (!player) return;
+        
+        isRemoteAction.current = true;
+
+        if (payload.action === 'play') {
+          player.play();
+        } else if (payload.action === 'pause') {
+          player.pause();
+        } else if (payload.action === 'seek') {
+          player.currentTime = payload.time;
+        }
+
+        // Reset the flag after a short delay to allow the player to process the command
+        setTimeout(() => {
+          isRemoteAction.current = false;
+        }, 50);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [id, plyrInstance]);
+
+  useEffect(() => {
+    const player = plyrInstance || playerRef.current?.plyr;
+    if (!player || !id || typeof player.on !== 'function') return;
+
+    const handlePlay = () => {
+      if (isRemoteAction.current || !channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'video-state',
+        payload: { action: 'play', time: player.currentTime },
+      });
+    };
+
+    const handlePause = () => {
+      if (isRemoteAction.current || !channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'video-state',
+        payload: { action: 'pause', time: player.currentTime },
+      });
+    };
+
+    const handleSeek = () => {
+      if (isRemoteAction.current || !channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'video-state',
+        payload: { action: 'seek', time: player.currentTime },
+      });
+    };
+
+    player.on('play', handlePlay);
+    player.on('pause', handlePause);
+    player.on('seeked', handleSeek);
+
+    return () => {
+      if (typeof player.off === 'function') {
+        player.off('play', handlePlay);
+        player.off('pause', handlePause);
+        player.off('seeked', handleSeek);
+      }
+    };
+  }, [id, plyrInstance]);
+
+  const videoSource = useMemo(() => ({
     type: 'video' as const,
     sources: [
       {
@@ -39,12 +147,36 @@ export function WatchParty() {
       }
     ],
     poster: media.backdropUrl,
-  };
+    tracks: [
+      {
+        kind: 'captions',
+        label: 'English',
+        srclang: 'en',
+        src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-HD.en.vtt',
+        default: true,
+      },
+      {
+        kind: 'captions',
+        label: 'Français',
+        srclang: 'fr',
+        src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-HD.fr.vtt',
+      },
+    ],
+  }), [media.backdropUrl]);
 
-  const plyrOptions = {
+  const plyrOptions = useMemo(() => ({
     controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
     settings: ['captions', 'quality', 'speed'],
-  };
+    quality: {
+      default: 1080,
+      options: [1080, 720, 576],
+    },
+    captions: {
+      active: true,
+      update: true,
+      language: 'en',
+    },
+  }), []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -90,6 +222,7 @@ export function WatchParty() {
           onMouseLeave={() => setShowControls(false)}
         >
           <Plyr 
+            ref={setPlayerRef}
             source={videoSource} 
             options={plyrOptions} 
           />
