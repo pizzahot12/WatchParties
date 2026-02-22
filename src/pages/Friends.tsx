@@ -1,42 +1,227 @@
-import React, { useState } from 'react';
-import { friendsList } from '../data/mockData';
-import { Search, MoreHorizontal, MessageCircle, Play, UserPlus, Monitor, X, Mail, Link as LinkIcon, Copy, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, MessageCircle, Play, UserPlus, UserCheck, UserX, X, Copy, Check, Hash, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+
+interface FriendProfile {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  friend_code: string;
+  is_online: boolean;
+  last_seen: string;
+}
+
+interface FriendshipRow {
+  id: string;
+  requester_id: string;
+  addressee_id: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
+  // Joined profile
+  profile?: FriendProfile;
+}
 
 export function Friends() {
+  const [user, setUser] = useState<any>(null);
+  const [myProfile, setMyProfile] = useState<FriendProfile | null>(null);
+  const [friends, setFriends] = useState<(FriendProfile & { friendshipId: string })[]>([]);
+  const [pendingReceived, setPendingReceived] = useState<(FriendProfile & { friendshipId: string })[]>([]);
+  const [pendingSent, setPendingSent] = useState<(FriendProfile & { friendshipId: string })[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Add Friend Modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [copied, setCopied] = useState(false);
-  const inviteLink = "https://streamparty.app/join/alex-chen-123";
+  const [friendCode, setFriendCode] = useState('');
+  const [addError, setAddError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(inviteLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  useEffect(() => {
+    init();
+  }, []);
+
+  const init = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setUser(user);
+
+    // Get own profile
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+    setMyProfile(profile);
+
+    await fetchFriendships(user.id);
+
+    // Realtime for friendship changes
+    const channel = supabase
+      .channel('friendships-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
+        fetchFriendships(user.id);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   };
 
-  const handleSendInvite = (e: React.FormEvent) => {
-    e.preventDefault();
-    alert(`Invite sent to ${inviteEmail}!`);
-    setInviteEmail('');
-    setShowAddModal(false);
+  const fetchFriendships = async (userId: string) => {
+    setLoading(true);
+
+    // Get all friendships involving this user
+    const { data: rows } = await supabase
+      .from('friendships')
+      .select('*')
+      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
+
+    if (!rows) { setLoading(false); return; }
+
+    const friendIds = new Set<string>();
+    rows.forEach(r => {
+      if (r.requester_id !== userId) friendIds.add(r.requester_id);
+      if (r.addressee_id !== userId) friendIds.add(r.addressee_id);
+    });
+
+    // Fetch all relevant profiles
+    let profiles: Record<string, FriendProfile> = {};
+    if (friendIds.size > 0) {
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', Array.from(friendIds));
+      if (profs) {
+        profs.forEach(p => { profiles[p.id] = p; });
+      }
+    }
+
+    const accepted: (FriendProfile & { friendshipId: string })[] = [];
+    const pendingIn: (FriendProfile & { friendshipId: string })[] = [];
+    const pendingOut: (FriendProfile & { friendshipId: string })[] = [];
+
+    rows.forEach(r => {
+      const otherId = r.requester_id === userId ? r.addressee_id : r.requester_id;
+      const profile = profiles[otherId];
+      if (!profile) return;
+
+      const entry = { ...profile, friendshipId: r.id };
+
+      if (r.status === 'accepted') {
+        accepted.push(entry);
+      } else if (r.status === 'pending') {
+        if (r.addressee_id === userId) {
+          pendingIn.push(entry);
+        } else {
+          pendingOut.push(entry);
+        }
+      }
+    });
+
+    setFriends(accepted);
+    setPendingReceived(pendingIn);
+    setPendingSent(pendingOut);
+    setLoading(false);
   };
+
+  const handleAddFriend = async () => {
+    if (!friendCode.trim() || !user) return;
+    setAdding(true);
+    setAddError('');
+
+    const code = friendCode.trim().toUpperCase();
+
+    if (myProfile?.friend_code === code) {
+      setAddError("That's your own code!");
+      setAdding(false);
+      return;
+    }
+
+    // Find user by friend code
+    const { data: target } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('friend_code', code)
+      .single();
+
+    if (!target) {
+      setAddError('No user found with that code.');
+      setAdding(false);
+      return;
+    }
+
+    // Check if friendship already exists
+    const { data: existing } = await supabase
+      .from('friendships')
+      .select('id')
+      .or(`and(requester_id.eq.${user.id},addressee_id.eq.${target.id}),and(requester_id.eq.${target.id},addressee_id.eq.${user.id})`);
+
+    if (existing && existing.length > 0) {
+      setAddError('Friend request already exists.');
+      setAdding(false);
+      return;
+    }
+
+    const { error } = await supabase.from('friendships').insert({
+      requester_id: user.id,
+      addressee_id: target.id,
+    });
+
+    if (error) {
+      setAddError('Failed to send request.');
+    } else {
+      setFriendCode('');
+      setShowAddModal(false);
+      fetchFriendships(user.id);
+    }
+    setAdding(false);
+  };
+
+  const handleAccept = async (friendshipId: string) => {
+    await supabase.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
+    if (user) fetchFriendships(user.id);
+  };
+
+  const handleReject = async (friendshipId: string) => {
+    await supabase.from('friendships').delete().eq('id', friendshipId);
+    if (user) fetchFriendships(user.id);
+  };
+
+  const handleCopyCode = () => {
+    if (myProfile?.friend_code) {
+      navigator.clipboard.writeText(myProfile.friend_code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const filteredFriends = friends.filter(f =>
+    f.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const defaultAvatar = (id: string) => `https://i.pravatar.cc/150?u=${id}`;
 
   return (
     <div className="p-6 md:p-12 pb-24 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold mb-2">Friends</h1>
-          <p className="text-gray-400 text-sm">See what your friends are watching right now</p>
+          <p className="text-gray-400 text-sm">Your friend code: <button onClick={handleCopyCode} className="inline-flex items-center gap-1 font-mono font-bold text-green-400 hover:text-green-300 transition-colors">
+            {myProfile?.friend_code || '------'}
+            {copiedCode ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          </button></p>
         </div>
         <div className="flex gap-3">
           <div className="relative flex-1 md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input 
-              type="text" 
-              placeholder="Search friends..." 
+            <input
+              type="text"
+              placeholder="Search friends..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
               className="w-full bg-[#1A1A1A] border border-white/5 rounded-full py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-white/10 focus:ring-1 focus:ring-white/10 transition-all placeholder-gray-600 text-white"
             />
           </div>
@@ -46,197 +231,182 @@ export function Friends() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {friendsList.map((friend, index) => (
-          <motion.div
-            key={friend.id}
+      {/* Pending Requests */}
+      {pendingReceived.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">
+            Friend Requests ({pendingReceived.length})
+          </h2>
+          <div className="space-y-3">
+            {pendingReceived.map(p => (
+              <motion.div
+                key={p.friendshipId}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center justify-between p-4 rounded-xl bg-[#1A1A1A] border border-amber-500/20"
+              >
+                <div className="flex items-center gap-3">
+                  <img src={p.avatar_url || defaultAvatar(p.id)} alt="" className="w-10 h-10 rounded-full object-cover" />
+                  <div>
+                    <p className="font-medium text-white">{p.display_name}</p>
+                    <p className="text-xs text-gray-500">Wants to be your friend</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => handleAccept(p.friendshipId)} className="text-xs rounded-lg gap-1">
+                    <UserCheck className="w-3.5 h-3.5" /> Accept
+                  </Button>
+                  <button onClick={() => handleReject(p.friendshipId)} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-colors">
+                    <UserX className="w-4 h-4" />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sent Requests */}
+      {pendingSent.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">
+            Sent Requests ({pendingSent.length})
+          </h2>
+          <div className="space-y-3">
+            {pendingSent.map(p => (
+              <div key={p.friendshipId} className="flex items-center justify-between p-4 rounded-xl bg-[#1A1A1A] border border-white/5">
+                <div className="flex items-center gap-3">
+                  <img src={p.avatar_url || defaultAvatar(p.id)} alt="" className="w-10 h-10 rounded-full object-cover" />
+                  <div>
+                    <p className="font-medium text-white">{p.display_name}</p>
+                    <p className="text-xs text-gray-500 flex items-center gap-1"><Clock className="w-3 h-3" /> Pending...</p>
+                  </div>
+                </div>
+                <button onClick={() => handleReject(p.friendshipId)} className="text-xs text-gray-500 hover:text-red-400 transition-colors">Cancel</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Friends Grid */}
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <div className="w-10 h-10 border-4 border-white/10 border-t-green-500 rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {filteredFriends.map((friend, index) => (
+            <motion.div
+              key={friend.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="group relative bg-[#1A1A1A] border border-white/5 rounded-2xl overflow-hidden hover:border-white/10 hover:bg-[#222] transition-all duration-300 flex flex-col"
+            >
+              {/* Header */}
+              <div className={`h-24 w-full relative ${friend.is_online ? 'bg-green-500/5' : 'bg-gray-800/20'}`}>
+                <div className="absolute top-3 right-3">
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${friend.is_online
+                      ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                      : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                    }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${friend.is_online ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
+                    {friend.is_online ? 'Online' : 'Offline'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Avatar & Info */}
+              <div className="px-5 pb-5 flex-1 flex flex-col -mt-10 relative z-10">
+                <div className="mb-3">
+                  <div className="w-20 h-20 rounded-2xl p-1 bg-[#1A1A1A] inline-block">
+                    <img
+                      src={friend.avatar_url || defaultAvatar(friend.id)}
+                      alt={friend.display_name}
+                      className="w-full h-full rounded-xl object-cover"
+                    />
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <h3 className="text-lg font-bold text-white mb-1">{friend.display_name}</h3>
+                  <p className="text-sm text-gray-500">
+                    {friend.is_online ? 'Online now' : `Last seen ${new Date(friend.last_seen).toLocaleDateString()}`}
+                  </p>
+                </div>
+
+                <div className="mt-auto pt-4 border-t border-white/5 flex gap-2">
+                  <Button variant="secondary" size="sm" className="flex-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/5">
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Message
+                  </Button>
+                  <button
+                    onClick={() => handleReject(friend.friendshipId)}
+                    className="p-2 rounded-lg bg-white/5 text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                    title="Remove friend"
+                  >
+                    <UserX className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+
+          {/* Add Friend Card */}
+          <motion.button
+            onClick={() => setShowAddModal(true)}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-            className="group relative bg-[#1A1A1A] border border-white/5 rounded-2xl overflow-hidden hover:border-white/10 hover:bg-[#222] transition-all duration-300 flex flex-col"
+            transition={{ delay: filteredFriends.length * 0.05 }}
+            className="group flex flex-col items-center justify-center h-full min-h-[280px] rounded-2xl border-2 border-dashed border-white/5 hover:border-white/20 hover:bg-white/5 transition-all"
           >
-            {/* Header / Status Banner */}
-            <div className={`h-24 w-full relative ${
-              friend.status === 'watching' ? 'bg-blue-500/10' : 
-              friend.status === 'online' ? 'bg-green-500/5' : 'bg-gray-800/20'
-            }`}>
-              {friend.status === 'watching' && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                   <Monitor className="w-12 h-12 text-blue-500/20" />
-                </div>
-              )}
-              <div className="absolute top-3 right-3">
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                  friend.status === 'online' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                  friend.status === 'watching' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                  friend.status === 'busy' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 
-                  'bg-gray-500/10 text-gray-400 border-gray-500/20'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    friend.status === 'online' ? 'bg-green-400' :
-                    friend.status === 'watching' ? 'bg-blue-400 animate-pulse' :
-                    friend.status === 'busy' ? 'bg-red-400' : 'bg-gray-400'
-                  }`} />
-                  {friend.status}
-                </span>
-              </div>
+            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <UserPlus className="w-6 h-6 text-gray-400 group-hover:text-white" />
             </div>
-
-            {/* Avatar & Info */}
-            <div className="px-5 pb-5 flex-1 flex flex-col -mt-10 relative z-10">
-              <div className="mb-3">
-                <div className="w-20 h-20 rounded-2xl p-1 bg-[#1A1A1A] inline-block text-white">
-                  <img 
-                    src={friend.avatarUrl} 
-                    alt={friend.username} 
-                    className="w-full h-full rounded-xl object-cover"
-                  />
-                </div>
-              </div>
-              
-              <div className="mb-4">
-                <h3 className="text-lg font-bold text-white mb-1">{friend.username}</h3>
-                {friend.status === 'watching' && friend.currentActivity ? (
-                  <div className="text-sm text-gray-300">
-                    <span className="text-blue-400 text-xs font-bold uppercase tracking-wide block mb-1">Watching Now</span>
-                    <p className="line-clamp-1 font-medium">{friend.currentActivity.mediaTitle}</p>
-                    {friend.currentActivity.progress && (
-                      <div className="w-full h-1 bg-gray-700 rounded-full mt-2 overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 rounded-full" 
-                          style={{ width: `${friend.currentActivity.progress}%` }} 
-                        />
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    {friend.status === 'online' ? 'Just hanging out' : 
-                     friend.status === 'busy' ? 'Do not disturb' : 'Last seen recently'}
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-auto pt-4 border-t border-white/5 flex gap-2">
-                <Button variant="secondary" size="sm" className="flex-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/5">
-                  <MessageCircle className="w-4 h-4 mr-2" />
-                  Message
-                </Button>
-                {friend.status === 'watching' && friend.currentActivity ? (
-                  <Link to={`/watch/${friend.currentActivity.mediaId}`} className="flex-1">
-                    <Button size="sm" className="w-full text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white border-none shadow-lg shadow-blue-900/20">
-                      <Play className="w-3 h-3 fill-current mr-2" />
-                      Join
-                    </Button>
-                  </Link>
-                ) : (
-                  <Button variant="ghost" size="sm" className="px-3 text-gray-500 hover:text-white">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        ))}
-        
-        {/* Add Friend Card */}
-        <motion.button
-          onClick={() => setShowAddModal(true)}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: friendsList.length * 0.05 }}
-          className="group flex flex-col items-center justify-center h-full min-h-[280px] rounded-2xl border-2 border-dashed border-white/5 hover:border-white/20 hover:bg-white/5 transition-all"
-        >
-          <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <UserPlus className="w-6 h-6 text-gray-400 group-hover:text-white" />
-          </div>
-          <span className="font-medium text-gray-400 group-hover:text-white">Invite Friend</span>
-        </motion.button>
-      </div>
+            <span className="font-medium text-gray-400 group-hover:text-white">Add Friend</span>
+          </motion.button>
+        </div>
+      )}
 
       {/* Add Friend Modal */}
       <AnimatePresence>
         {showAddModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAddModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-[#121212] rounded-3xl p-8 border border-white/5 shadow-2xl"
-            >
-              <button 
-                onClick={() => setShowAddModal(false)}
-                className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/5 text-gray-500 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddModal(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative w-full max-w-md bg-[#121212] rounded-2xl p-6 border border-white/10">
+              <button onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/5 text-gray-500"><X className="w-5 h-5" /></button>
 
-              <div className="mb-8">
-                <h2 className="text-2xl font-display font-bold mb-2">Invite Friends</h2>
-                <p className="text-gray-400 text-sm">Grow your watch party circle</p>
+              <h2 className="text-xl font-bold mb-2">Add Friend</h2>
+              <p className="text-sm text-gray-400 mb-6">Enter your friend's 6-character code</p>
+
+              {/* Show own code */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6 text-center">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Your Code</p>
+                <button onClick={handleCopyCode} className="flex items-center gap-2 mx-auto text-2xl font-mono font-bold tracking-[0.3em] text-green-400 hover:text-green-300">
+                  {myProfile?.friend_code || '------'}
+                  {copiedCode ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                </button>
+                <p className="text-xs text-gray-600 mt-2">Share this code with friends</p>
               </div>
 
-              <div className="space-y-6">
-                {/* Copy Link Section */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">Share Invite Link</label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                      <input 
-                        type="text"
-                        readOnly
-                        value={inviteLink}
-                        className="w-full bg-black/40 border border-white/5 rounded-2xl py-3 pl-11 pr-4 text-sm text-gray-400 focus:outline-none"
-                      />
-                    </div>
-                    <button 
-                      onClick={handleCopyLink}
-                      className={`px-4 rounded-2xl border border-white/5 transition-all flex items-center justify-center min-w-[100px] ${
-                        copied ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-white/5 text-white hover:bg-white/10'
-                      }`}
-                    >
-                      {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4 mr-2" />}
-                      <span className="text-xs font-bold uppercase">{copied ? 'Copied' : 'Copy'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="relative flex items-center justify-center">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-white/5"></div>
-                  </div>
-                  <span className="relative px-4 text-xs font-semibold text-gray-500 uppercase bg-[#121212]">Or send email</span>
-                </div>
-
-                {/* Email Invite Section */}
-                <form onSubmit={handleSendInvite} className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">Email Address</label>
-                    <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                      <input 
-                        type="email"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        required
-                        className="w-full bg-[#1A1A1A] border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all"
-                        placeholder="friend@example.com"
-                      />
-                    </div>
-                  </div>
-                  <Button type="submit" className="w-full py-4 rounded-2xl font-bold text-lg">
-                    Send Invitation
-                  </Button>
-                </form>
+              <div className="relative mb-1">
+                <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={friendCode}
+                  onChange={e => { setFriendCode(e.target.value.toUpperCase()); setAddError(''); }}
+                  placeholder="ABC123"
+                  className="w-full bg-black/50 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-lg font-mono font-bold tracking-[0.3em] text-white focus:outline-none focus:border-green-500 transition-colors uppercase text-center"
+                  autoFocus
+                />
               </div>
+              {addError && <p className="text-red-400 text-sm mt-1 text-center">{addError}</p>}
+
+              <Button onClick={handleAddFriend} disabled={adding || friendCode.length < 4} className="w-full mt-4 py-3 rounded-xl font-bold">
+                {adding ? 'Sending...' : 'Send Friend Request'}
+              </Button>
             </motion.div>
           </div>
         )}

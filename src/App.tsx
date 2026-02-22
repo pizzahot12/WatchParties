@@ -13,6 +13,7 @@ import { Profile } from './pages/Profile';
 import { Library } from './pages/Library';
 import { WatchParty } from './pages/WatchParty';
 import { Details } from './pages/Details';
+import { Rooms } from './pages/Rooms';
 import { Login } from './pages/Login';
 import { supabase } from './lib/supabase';
 import { MovieCard } from './components/MovieCard';
@@ -120,6 +121,7 @@ export default function App() {
           <Route path="/live" element={<MediaPage title="Live TV" type="live" />} />
           <Route path="/my-list" element={<MediaPage title="My List" type="mylist" />} />
           <Route path="/friends" element={<Friends />} />
+          <Route path="/rooms" element={<Rooms />} />
           <Route path="/servers" element={<Servers />} />
           <Route path="/library" element={<Library />} />
           <Route path="/profile" element={<Profile />} />

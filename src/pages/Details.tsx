@@ -81,12 +81,24 @@ export function Details() {
             </div>
 
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-8">
-              <Link to={`/watch/${media.id}`}>
-                <Button size="lg" className="rounded-full px-8 gap-2">
-                  <Play className="w-5 h-5 fill-current" />
-                  Play
-                </Button>
-              </Link>
+              {(() => {
+                // For series, the Play button should go to the first episode, not the series itself
+                let playId = media.id;
+                if (media.type === 'tv' && media.seasons && media.seasons.length > 0) {
+                  const firstSeason = media.seasons[0];
+                  if (firstSeason.episodes && firstSeason.episodes.length > 0) {
+                    playId = firstSeason.episodes[0].id;
+                  }
+                }
+                return (
+                  <Link to={`/watch/${playId}`}>
+                    <Button size="lg" className="rounded-full px-8 gap-2">
+                      <Play className="w-5 h-5 fill-current" />
+                      Play
+                    </Button>
+                  </Link>
+                );
+              })()}
               <Button variant="secondary" className="rounded-full gap-2">
                 <Plus className="w-5 h-5" />
                 Add to List
