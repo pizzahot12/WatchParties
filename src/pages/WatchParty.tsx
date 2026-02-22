@@ -569,43 +569,41 @@ export function WatchParty() {
   }, [id, plyrInstance]);
 
   const isCustomStream = media.streamUrl && media.streamUrl.trim() !== '';
+  // True while fetching HLS sources from Jellyfin (stream URL present but HLS not ready yet)
+  const isLoadingJellyfin = isCustomStream && media.streamUrl.includes('api_key=') && jellyfinSources.length === 0;
 
   const videoSource = useMemo(() => {
+    // Jellyfin HLS sources ready — use them (best: quality selector, subtitles, audio)
     if (jellyfinSources.length > 0) {
       return {
         type: 'video' as const,
         sources: jellyfinSources,
         poster: media.backdropUrl,
-        // No tracks — subtitles are burned in via Jellyfin transcode
       };
     }
 
+    // Jellyfin is still loading — use the raw streamUrl as a hold-over
+    // This avoids showing a test video while the HLS manifest is being built
     if (isCustomStream) {
       return {
         type: 'video' as const,
         sources: [
           {
             src: media.streamUrl,
-            type: media.streamUrl.includes('.m3u8') ? 'application/x-mpegURL' :
-              (media.streamUrl.includes('.mkv') ? 'video/x-matroska' : 'video/mp4'),
+            type: media.streamUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4',
             size: 1080
           }
         ],
         poster: media.backdropUrl,
       };
-    } else {
-      return {
-        type: 'video' as const,
-        sources: [
-          {
-            src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4',
-            type: 'video/mp4',
-            size: 720,
-          }
-        ],
-        poster: media.backdropUrl,
-      };
     }
+
+    // No stream source at all — empty placeholder (do not play demo)
+    return {
+      type: 'video' as const,
+      sources: [],
+      poster: media.backdropUrl,
+    };
   }, [media.backdropUrl, media.streamUrl, isCustomStream, jellyfinSources]);
 
   const plyrOptions = useMemo(() => ({
@@ -726,6 +724,14 @@ export function WatchParty() {
             source={videoSource}
             options={plyrOptions}
           />
+          {/* Jellyfin loading overlay */}
+          {isLoadingJellyfin && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-none">
+              <div className="w-12 h-12 border-4 border-white/20 border-t-green-500 rounded-full animate-spin mb-4" />
+              <p className="text-white font-semibold text-sm">Cargando episodio...</p>
+              <p className="text-gray-400 text-xs mt-1">{media.title}</p>
+            </div>
+          )}
         </div>
       </div>
 
