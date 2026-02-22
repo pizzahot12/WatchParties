@@ -21,27 +21,37 @@ import { MediaInterface } from './types';
 
 // Media Pages
 function MediaPage({ title, type }: { title: string, type: string }) {
-  const [movies, setMovies] = useState<MediaInterface[]>([]);
+  const [mediaItems, setMediaItems] = useState<MediaInterface[]>([]);
 
   useEffect(() => {
-    const savedSynchedMovies = localStorage.getItem('streamparty_synced_movies');
-    if (savedSynchedMovies) {
-      setMovies(JSON.parse(savedSynchedMovies));
+    const savedMovies = localStorage.getItem('streamparty_synced_movies');
+    const savedSeries = localStorage.getItem('streamparty_synced_series');
+
+    if (savedSeries) {
+      if (type === 'tv') {
+        setMediaItems(JSON.parse(savedSeries));
+      } else {
+        if (savedMovies) setMediaItems(JSON.parse(savedMovies));
+      }
+    } else if (savedMovies) {
+      const all: MediaInterface[] = JSON.parse(savedMovies);
+      setMediaItems(all.filter((m) => m.type === type));
     }
 
-    const unsubscribe = eventBus.on('movies-synced', (newMovies: MediaInterface[]) => {
-      setMovies(newMovies);
+    const eventName = type === 'tv' ? 'series-synced' : 'movies-synced';
+    const unsubscribe = eventBus.on(eventName, (newItems: MediaInterface[]) => {
+      setMediaItems(newItems);
     });
 
     return unsubscribe;
-  }, []);
+  }, [type]);
 
   return (
     <div className="p-8">
       <h1 className="text-3xl font-bold mb-8">{title}</h1>
-      {movies.length > 0 ? (
+      {mediaItems.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {movies.map((media) => (
+          {mediaItems.map((media) => (
             <MovieCard key={media.id} media={media} />
           ))}
         </div>
