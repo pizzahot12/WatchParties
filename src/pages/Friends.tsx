@@ -77,6 +77,13 @@ export function Friends() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
         fetchFriendships(user.id);
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+        const p = payload.new as any;
+        setFriends(prev => prev.map(f => f.id === p.id ? { ...f, ...p } : f));
+        setPendingReceived(prev => prev.map(f => f.id === p.id ? { ...f, ...p } : f));
+        setPendingSent(prev => prev.map(f => f.id === p.id ? { ...f, ...p } : f));
+        if (p.id === user.id) setMyProfile(p);
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };

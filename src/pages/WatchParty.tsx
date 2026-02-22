@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, FormEvent, useMemo, useCallback } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { featuredMedia, trendingMedia, libraryMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw, Settings, Hash, Copy, Check, UserX, Trash2, ListVideo, Shield } from 'lucide-react';
@@ -7,10 +7,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { createRoom } from '../hooks/useRoomPresence';
 import Hls from 'hls.js';
 
 export function WatchParty() {
   const { id } = useParams();
+  const navigate = useNavigate();
 
   const savedSynchedMovies = localStorage.getItem('streamparty_synced_movies');
   const synchronizedMovies = savedSynchedMovies ? JSON.parse(savedSynchedMovies) : [];
@@ -102,12 +104,28 @@ export function WatchParty() {
   const [roomParticipants, setRoomParticipants] = useState<{ user_id: string; display_name: string; avatar_url: string | null }[]>([]);
 
   // Admin panel
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const roomCode = searchParams.get('room') || '';
   const [showAdmin, setShowAdmin] = useState(false);
   const [copiedRoomCode, setCopiedRoomCode] = useState(false);
   const [roomHostId, setRoomHostId] = useState<string | null>(null);
   const isHost = currentUser?.id === roomHostId;
+
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+
+  const handleCreatePrivateRoom = async () => {
+    if (!media || !id) return;
+    setIsCreatingRoom(true);
+    try {
+      const newRoom = await createRoom(id, media.title, media.backdropUrl || media.posterUrl || '', 'public');
+      setSearchParams({ room: newRoom.code });
+      setActiveTab('chat');
+    } catch (err: any) {
+      alert("Debes iniciar sesión para crear una sala pública: " + err.message);
+    } finally {
+      setIsCreatingRoom(false);
+    }
+  };
 
   // Load room host info
   useEffect(() => {
@@ -1010,11 +1028,13 @@ export function WatchParty() {
               <Shield className="w-16 h-16 text-green-500/30 mb-6" />
               <h3 className="text-white font-bold text-xl mb-3 font-display">Sesión Privada</h3>
               <p className="text-gray-400 text-sm mb-8 max-w-xs leading-relaxed">Estás viendo esto de forma local. Nadie más puede entrar o ver lo que miras sin compartir un código de sala.</p>
-              <Link to="/rooms">
-                <Button className="rounded-full font-bold bg-green-500 hover:bg-green-400 text-black px-8">
-                  Crear Sala Pública
-                </Button>
-              </Link>
+              <Button
+                onClick={handleCreatePrivateRoom}
+                disabled={isCreatingRoom}
+                className="rounded-full font-bold bg-green-500 hover:bg-green-400 text-black px-8"
+              >
+                {isCreatingRoom ? 'Creando...' : 'Crear Sala Pública'}
+              </Button>
             </div>
           ) : activeTab === 'admin' && isHost ? (
             <div className="space-y-6">
