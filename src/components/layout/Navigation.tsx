@@ -18,7 +18,6 @@ export function Sidebar() {
     { icon: Home, label: 'Home', path: '/' },
     { icon: Play, label: 'Movies', path: '/movies' },
     { icon: Monitor, label: 'TV Shows', path: '/tv-shows' },
-    { icon: Library, label: 'Library', path: '/library' },
     { icon: Tv, label: 'Rooms', path: '/rooms' },
     { icon: Users, label: 'Friends', path: '/friends' },
     { icon: Server, label: 'Servers', path: '/servers' },
@@ -106,7 +105,6 @@ export function MobileNav() {
     { icon: Home, label: 'Home', path: '/' },
     { icon: Play, label: 'Movies', path: '/movies' },
     { icon: Tv, label: 'Rooms', path: '/rooms' },
-    { icon: Library, label: 'Library', path: '/library' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 

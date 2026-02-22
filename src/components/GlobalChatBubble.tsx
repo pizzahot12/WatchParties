@@ -117,6 +117,12 @@ export function GlobalChatBubble() {
                     }
                 }
             })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+                const updatedProfile = payload.new as FriendProfile;
+                setFriends(prev => prev.map(f => f.id === updatedProfile.id ? { ...f, ...updatedProfile } : f));
+                // Update active chat if currently chatting with this friend
+                setActiveChat(prev => (prev && prev.id === updatedProfile.id) ? { ...prev, ...updatedProfile } : prev);
+            })
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };

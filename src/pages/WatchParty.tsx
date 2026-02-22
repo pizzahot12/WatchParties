@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, FormEvent, useMemo, useCallback } from 're
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { featuredMedia, trendingMedia, libraryMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw, Settings, Hash, Copy, Check, UserX, Trash2, ListVideo } from 'lucide-react';
+import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw, Settings, Hash, Copy, Check, UserX, Trash2, ListVideo, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
@@ -95,6 +95,9 @@ export function WatchParty() {
 
   // Current user info for chat
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; avatar: string } | null>(null);
+  const currentUserRef = useRef<{ id: string; name: string; avatar: string } | null>(null);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
   // Room presence: list of connected participants
   const [roomParticipants, setRoomParticipants] = useState<{ user_id: string; display_name: string; avatar_url: string | null }[]>([]);
 
@@ -525,6 +528,11 @@ export function WatchParty() {
   const activeTabRef = useRef(activeTab);
   useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
 
+  const isHostRef = useRef(isHost);
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+  const roomCodeRef = useRef(roomCode);
+  useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
+
   useEffect(() => {
     if (!id) return;
 
@@ -573,6 +581,8 @@ export function WatchParty() {
         if (activeTabRef.current !== 'chat') setUnreadMessages(prev => prev + 1);
       })
       .on('broadcast', { event: 'request-sync' }, () => {
+        // Only host should reply
+        if (roomCodeRef.current && !isHostRef.current) return;
         const player = plyrInstance || playerRef.current?.plyr;
         if (player) {
           channel.send({
@@ -604,6 +614,17 @@ export function WatchParty() {
         });
         setRoomParticipants(users);
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+        const updatedProfile = payload.new as any;
+        setRoomParticipants(prev => prev.map(p =>
+          p.user_id === updatedProfile.id
+            ? { ...p, display_name: updatedProfile.display_name, avatar_url: updatedProfile.avatar_url }
+            : p
+        ));
+        if (currentUserRef.current?.id === updatedProfile.id) {
+          setCurrentUser(prev => prev ? { ...prev, name: updatedProfile.display_name, avatar: updatedProfile.avatar_url } : prev);
+        }
+      })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           setIsRealtimeConnected(true);
@@ -614,7 +635,7 @@ export function WatchParty() {
       })
       .on('broadcast', { event: 'kick' }, ({ payload }) => {
         // If the current user was kicked, navigate them away
-        if (currentUser && payload.userId === currentUser.id) {
+        if (currentUserRef.current && payload.userId === currentUserRef.current.id) {
           alert("You have been kicked from the room.");
           window.location.href = '/rooms'; // simple hard redirect for reliability
         }
@@ -624,7 +645,8 @@ export function WatchParty() {
     const hb = setInterval(() => {
       const player = plyrInstance || playerRef.current?.plyr;
       if (player?.playing) {
-        if (channelRef.current && !isFromRemote()) {
+        // Only host sends heartbeat in a room
+        if (channelRef.current && !isFromRemote() && (!roomCodeRef.current || isHostRef.current)) {
           channelRef.current.send({
             type: 'broadcast', event: 'heartbeat',
             payload: { time: player.currentTime, playing: true }
@@ -721,6 +743,8 @@ export function WatchParty() {
 
     let lastBroadcast = 0;
     const canBroadcast = () => {
+      // If we are in a room and not the host, we shouldn't send sync events.
+      if (roomCode && !isHost) return false;
       if (isRemoteAction.current || !channelRef.current) return false;
       const now = Date.now();
       if (now - lastBroadcast < 500) return false;
@@ -981,7 +1005,18 @@ export function WatchParty() {
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#121212]">
-          {activeTab === 'admin' && isHost ? (
+          {!roomCode && (activeTab === 'chat' || activeTab === 'people' || activeTab === 'admin') ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6 py-20">
+              <Shield className="w-16 h-16 text-green-500/30 mb-6" />
+              <h3 className="text-white font-bold text-xl mb-3 font-display">Sesión Privada</h3>
+              <p className="text-gray-400 text-sm mb-8 max-w-xs leading-relaxed">Estás viendo esto de forma local. Nadie más puede entrar o ver lo que miras sin compartir un código de sala.</p>
+              <Link to="/rooms">
+                <Button className="rounded-full font-bold bg-green-500 hover:bg-green-400 text-black px-8">
+                  Crear Sala Pública
+                </Button>
+              </Link>
+            </div>
+          ) : activeTab === 'admin' && isHost ? (
             <div className="space-y-6">
               <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4">
                 <h3 className="text-white font-bold mb-1 flex items-center gap-2">
@@ -1130,7 +1165,7 @@ export function WatchParty() {
         </div>
 
         {/* Input Area (Only for Chat) */}
-        {activeTab === 'chat' && (
+        {activeTab === 'chat' && roomCode && (
           <div className="p-4 border-t border-white/5 bg-[#121212]">
             <form onSubmit={handleSendMessage} className="relative">
               <input
