@@ -69,6 +69,9 @@ export function WatchParty() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
 
+  // Always start in loading state — cleared once sources are ready
+  const [isLoadingStream, setIsLoadingStream] = useState(true);
+
   const [jellyfinSources, setJellyfinSources] = useState<any[]>([]);
   const [jellyfinQualitiesLabels, setJellyfinQualitiesLabels] = useState<Record<number, string>>({});
 
@@ -78,12 +81,31 @@ export function WatchParty() {
   const [subtitleStreams, setSubtitleStreams] = useState<any[]>([]);
   const [selectedSubtitle, setSelectedSubtitle] = useState<number>(-1);
 
+  // CRITICAL: Reset ALL stream state when the episode/movie ID changes.
+  // Without this, stale sources from the previous episode remain and play instead of the new one.
   useEffect(() => {
-    if (!media.streamUrl || !media.streamUrl.includes('api_key=')) return;
+    setIsLoadingStream(true);
+    setJellyfinSources([]);
+    setJellyfinQualitiesLabels({});
+    setAudioStreams([]);
+    setSelectedAudio(null);
+    setSubtitleStreams([]);
+    setSelectedSubtitle(-1);
+  }, [id]);
+
+  useEffect(() => {
+    if (!media.streamUrl || !media.streamUrl.includes('api_key=')) {
+      // Not a Jellyfin stream — nothing to fetch, mark as ready immediately
+      setIsLoadingStream(false);
+      return;
+    }
 
     // match baseUrl and apiKey from streamUrl
     const match = media.streamUrl.match(/^(https?:\/\/[^\/]+)\/.*api_key=([^&]+)/);
-    if (!match) return;
+    if (!match) {
+      setIsLoadingStream(false);
+      return;
+    }
 
     const baseUrl = match[1];
     const apiKey = match[2];
@@ -177,8 +199,12 @@ export function WatchParty() {
 
         setJellyfinQualitiesLabels(labels);
         setJellyfinSources(qualitiesCounted);
+        // Mark stream as ready — overlay will hide
+        setIsLoadingStream(false);
       } catch (err) {
         console.error('Failed to fetch extras', err);
+        // Even on error mark as done so overlay doesn't stay forever
+        setIsLoadingStream(false);
       }
     };
     fetchJellyfinExtras();
@@ -569,8 +595,7 @@ export function WatchParty() {
   }, [id, plyrInstance]);
 
   const isCustomStream = media.streamUrl && media.streamUrl.trim() !== '';
-  // True while fetching HLS sources from Jellyfin (stream URL present but HLS not ready yet)
-  const isLoadingJellyfin = isCustomStream && media.streamUrl.includes('api_key=') && jellyfinSources.length === 0;
+  // isLoadingStream is managed via useState/useEffect above, no extra computed value needed
 
   const videoSource = useMemo(() => {
     // Jellyfin HLS sources ready — use them (best: quality selector, subtitles, audio)
@@ -724,8 +749,8 @@ export function WatchParty() {
             source={videoSource}
             options={plyrOptions}
           />
-          {/* Jellyfin loading overlay */}
-          {isLoadingJellyfin && (
+          {/* Jellyfin loading overlay — always shown until stream is confirmed ready */}
+          {isLoadingStream && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-none">
               <div className="w-12 h-12 border-4 border-white/20 border-t-green-500 rounded-full animate-spin mb-4" />
               <p className="text-white font-semibold text-sm">Cargando episodio...</p>
