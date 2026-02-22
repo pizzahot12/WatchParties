@@ -27,20 +27,28 @@ function MediaPage({ title, type }: { title: string, type: string }) {
     const savedMovies = localStorage.getItem('streamparty_synced_movies');
     const savedSeries = localStorage.getItem('streamparty_synced_series');
 
-    if (savedSeries) {
-      if (type === 'tv') {
-        setMediaItems(JSON.parse(savedSeries));
-      } else {
-        if (savedMovies) setMediaItems(JSON.parse(savedMovies));
-      }
-    } else if (savedMovies) {
-      const all: MediaInterface[] = JSON.parse(savedMovies);
-      setMediaItems(all.filter((m) => m.type === type));
+    let allMedia: MediaInterface[] = [];
+
+    if (savedMovies) {
+      try { allMedia = [...allMedia, ...JSON.parse(savedMovies)]; } catch (e) { }
     }
+    if (savedSeries) {
+      try { allMedia = [...allMedia, ...JSON.parse(savedSeries)]; } catch (e) { }
+    }
+
+    // Deduplicate mapping (prefer newer entries if overlaps exist)
+    const uniqueMap = new Map();
+    allMedia.forEach(m => uniqueMap.set(m.id, m));
+    allMedia = Array.from(uniqueMap.values());
+
+    // Strictly separate movies vs tv shows
+    setMediaItems(allMedia.filter((m) => m.type === type));
 
     const eventName = type === 'tv' ? 'series-synced' : 'movies-synced';
     const unsubscribe = eventBus.on(eventName, (newItems: MediaInterface[]) => {
-      setMediaItems(newItems);
+      // Upon new syncs, merge it robustly with what's in local storage just like above
+      // For immediate response, replace the exact array:
+      setMediaItems(newItems.filter(m => m.type === type));
     });
 
     return unsubscribe;
