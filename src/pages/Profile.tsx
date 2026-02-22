@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { User as UserIcon, Settings, LogOut, CreditCard, Shield, Palette } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { User as UserIcon, Settings, LogOut, CreditCard, Shield, Palette, Camera, Upload } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabase';
 
@@ -11,21 +11,25 @@ export function Profile() {
   // Edit Profile States
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [editBio, setEditBio] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Avatar upload states
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
       if (user) {
         setEditName(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || '');
-        setEditAvatarUrl(user.user_metadata?.avatar_url || '');
         setEditBio(user.user_metadata?.bio || '');
+        setAvatarPreview(user.user_metadata?.avatar_url || null);
       }
     });
 
-    // Load actual library counts
     try {
       const movies = JSON.parse(localStorage.getItem('streamparty_synced_movies') || '[]');
       const series = JSON.parse(localStorage.getItem('streamparty_synced_series') || '[]');
@@ -39,26 +43,82 @@ export function Profile() {
     window.location.href = '/';
   };
 
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate size (max 5 MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image is too large. Please choose an image under 5 MB.');
+      return;
+    }
+
+    // Validate type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (JPG, PNG, GIF, WebP).');
+      return;
+    }
+
+    setAvatarFile(file);
+    // Show local preview immediately
+    const reader = new FileReader();
+    reader.onload = (ev) => setAvatarPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const handleSaveProfile = async () => {
     setIsSaving(true);
+    let newAvatarUrl = user?.user_metadata?.avatar_url || null;
+
+    // Upload avatar if a new file was picked
+    if (avatarFile && user) {
+      setIsUploadingAvatar(true);
+      const ext = avatarFile.name.split('.').pop();
+      const filePath = `${user.id}/avatar.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, avatarFile, { upsert: true, contentType: avatarFile.type });
+
+      setIsUploadingAvatar(false);
+
+      if (uploadError) {
+        alert('Error uploading avatar: ' + uploadError.message);
+        setIsSaving(false);
+        return;
+      }
+
+      // Get the public URL
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      // Append a cache-busting timestamp so the browser always shows the new image
+      newAvatarUrl = urlData.publicUrl + '?t=' + Date.now();
+    }
+
     const { data, error } = await supabase.auth.updateUser({
       data: {
         full_name: editName,
-        avatar_url: editAvatarUrl,
+        avatar_url: newAvatarUrl,
         bio: editBio
       }
     });
+
     setIsSaving(false);
 
     if (error) {
-      alert("Error saving profile: " + error.message);
+      alert('Error saving profile: ' + error.message);
     } else if (data.user) {
       setUser(data.user);
+      setAvatarFile(null);
       setIsEditing(false);
     }
   };
 
-  // Use display name from user metadata, fall back to email username
+  const handleOpenEdit = () => {
+    setAvatarPreview(user?.user_metadata?.avatar_url || null);
+    setAvatarFile(null);
+    setIsEditing(true);
+  };
+
   const displayName = user?.user_metadata?.full_name
     || user?.user_metadata?.name
     || user?.email?.split('@')[0]
@@ -69,24 +129,25 @@ export function Profile() {
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : 'Recently';
 
-  const avatarUrl = user?.user_metadata?.avatar_url || `https://i.pravatar.cc/150?u=${user?.id || 'me'}`;
+  const currentAvatar = user?.user_metadata?.avatar_url || `https://i.pravatar.cc/150?u=${user?.id || 'me'}`;
 
   return (
     <div className="p-6 md:p-12 pb-24 max-w-4xl mx-auto">
       <h1 className="text-3xl font-display font-bold mb-8">My Profile</h1>
 
+      {/* Profile Card */}
       <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-8 mb-8 flex flex-col md:flex-row items-center gap-8">
         <div className="relative">
           <div className="w-32 h-32 rounded-full p-1 bg-gradient-to-br from-green-400 to-blue-500">
             <img
-              src={avatarUrl}
+              src={currentAvatar}
               alt="Profile"
               className="w-full h-full rounded-full object-cover border-4 border-[#1A1A1A]"
             />
           </div>
           <button
             className="absolute bottom-0 right-0 p-2 bg-white text-black rounded-full hover:scale-110 transition-transform"
-            onClick={() => setIsEditing(true)}
+            onClick={handleOpenEdit}
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -119,9 +180,10 @@ export function Profile() {
         </div>
       </div>
 
+      {/* Settings Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
-          { id: 'settings', icon: UserIcon, label: 'Account Settings', desc: 'Manage your personal details', action: () => setIsEditing(true) },
+          { id: 'settings', icon: UserIcon, label: 'Account Settings', desc: 'Manage your personal details', action: handleOpenEdit },
           { id: 'appearance', icon: Palette, label: 'Appearance', desc: 'Theme and player customization', action: () => { } },
           { id: 'privacy', icon: Shield, label: 'Privacy & Security', desc: 'Control who sees your activity', action: () => { } },
           { id: 'billing', icon: CreditCard, label: 'Billing', desc: 'Manage your subscription', action: () => { } },
@@ -151,9 +213,45 @@ export function Profile() {
 
       {/* Edit Profile Modal */}
       {isEditing && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#1A1A1A] border border-white/10 rounded-2xl p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-6">Edit Profile</h2>
+
+            {/* Avatar Upload */}
+            <div className="flex flex-col items-center mb-6">
+              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                <div className="w-24 h-24 rounded-full p-1 bg-gradient-to-br from-green-400 to-blue-500">
+                  <img
+                    src={avatarPreview || currentAvatar}
+                    alt="Avatar Preview"
+                    className="w-full h-full rounded-full object-cover border-4 border-[#1A1A1A]"
+                  />
+                </div>
+                {/* Hover overlay */}
+                <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Camera className="w-6 h-6 text-white" />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 flex items-center gap-2 text-sm text-green-400 hover:text-green-300 transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                {avatarFile ? avatarFile.name : 'Choose image from device'}
+              </button>
+              <p className="text-xs text-gray-500 mt-1">JPG, PNG, GIF or WebP — max 5 MB</p>
+
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarFileChange}
+              />
+            </div>
 
             <div className="space-y-4">
               <div>
@@ -168,18 +266,6 @@ export function Profile() {
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Avatar URL</label>
-                <input
-                  type="url"
-                  className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors"
-                  value={editAvatarUrl}
-                  onChange={e => setEditAvatarUrl(e.target.value)}
-                  placeholder="https://example.com/image.jpg"
-                />
-                <p className="text-xs text-gray-500 mt-1">Leave blank to use a generated avatar.</p>
-              </div>
-
-              <div>
                 <label className="block text-sm text-gray-400 mb-1">Bio</label>
                 <textarea
                   className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors h-24 resize-none"
@@ -188,13 +274,14 @@ export function Profile() {
                   placeholder="Tell us about your favorite movies..."
                   maxLength={150}
                 />
+                <p className="text-xs text-gray-600 text-right">{editBio.length}/150</p>
               </div>
             </div>
 
             <div className="flex justify-end gap-3 mt-8">
               <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
-              <Button onClick={handleSaveProfile} disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Save Changes'}
+              <Button onClick={handleSaveProfile} disabled={isSaving || isUploadingAvatar}>
+                {isUploadingAvatar ? 'Uploading...' : isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </div>
@@ -203,4 +290,3 @@ export function Profile() {
     </div>
   );
 }
-
