@@ -108,92 +108,79 @@ export function Servers() {
     try {
       if (server.type === 'jellyfin') {
         const baseUrl = server.url.replace(/\/$/, '');
-        console.log(`[Sync] Fetching jellyfin items from url: ${baseUrl}/Items?api_key=HIDDEN&Recursive=true&IncludeItemTypes=Movie,Episode`);
+
+        // Fetch movies and series in a single request to avoid rate limits or timeout on large libraries
         const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Series&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags`, {
-          method: 'GET',
           headers: { 'Accept': 'application/json' }
         });
 
-        console.log(`[Sync] Jellyfin response status: ${response.status}`);
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`[Sync] Jellyfin returned ${data.TotalRecordCount} total records, with ${data.Items?.length} items in array`);
-
-          const count = data.TotalRecordCount || Math.floor(Math.random() * 2000) + 100;
-          setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: count } : s));
-
-          let syncedMovies: MediaInterface[] = [];
-          let syncedSeries: MediaInterface[] = [];
-          if (data.Items && data.Items.length > 0) {
-            const allItems = data.Items.map((item: any) => {
-              const hasPrimary = item.ImageTags && item.ImageTags.Primary;
-              const hasBackdrop = item.ImageTags && item.ImageTags.Backdrop || (item.BackdropImageTags && item.BackdropImageTags.length > 0);
-
-              const poster = hasPrimary ? `${baseUrl}/Items/${item.Id}/Images/Primary?api_key=${server.token}` : `https://picsum.photos/seed/jf${item.Id}/400/600`;
-              const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster;
-
-              const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
-              const container = containerArray.find((c: string) => c === 'mp4') || containerArray.find((c: string) => c === 'webm') || containerArray[0];
-
-              const mediaType = (item.Type === 'Episode' || item.Type === 'Series') ? 'tv' as const : 'movie' as const;
-
-              return {
-                id: item.Id,
-                title: item.Name || 'Unknown Title',
-                posterUrl: poster,
-                backdropUrl: backdrop,
-                type: mediaType,
-                year: item.ProductionYear || new Date().getFullYear(),
-                rating: item.OfficialRating || 'NR',
-                description: item.Overview || 'No description available.',
-                genres: item.Genres || [],
-                streamUrl: ['mp4', 'webm', 'mov'].includes(container)
-                  ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
-                  : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`
-              };
-            });
-
-            syncedMovies = allItems.filter((m: MediaInterface) => m.type === 'movie');
-            syncedSeries = allItems.filter((m: MediaInterface) => m.type === 'tv');
-            console.log(`[Sync] ${syncedMovies.length} movies, ${syncedSeries.length} series`);
-          }
-
-          localStorage.setItem('streamparty_synced_movies', JSON.stringify(syncedMovies));
-          localStorage.setItem('streamparty_synced_series', JSON.stringify(syncedSeries));
-          eventBus.emit('movies-synced', syncedMovies);
-          eventBus.emit('series-synced', syncedSeries);
-
-        } else {
-          // Ensure it delays a bit to show the UI feedback
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          const newSize = Math.floor(Math.random() * 5000) + 500;
-          setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: newSize } : s));
-
-          const mockMovies = Array.from({ length: 6 }).map((_, i) => ({
-            id: `sync-jf-fb-${Date.now()}-${i}`,
-            title: `Jellyfin Movie (Fallback) ${i + 1}`,
-            posterUrl: `https://picsum.photos/seed/jfb${i}/400/600`,
-            backdropUrl: `https://picsum.photos/seed/bg-jfb${i}/1920/1080`,
-            type: 'movie' as const,
-            year: 2024,
-            rating: 'R',
-            description: 'This is a mocked movie generated during fallback sync.',
-            genres: ['Thriller'],
-            streamUrl: ''
-          }));
-          localStorage.setItem('streamparty_synced_movies', JSON.stringify(mockMovies));
-          eventBus.emit('movies-synced', mockMovies);
+        if (!response.ok) {
+          throw new Error(`Jellyfin API Error: ${response.status}`);
         }
+
+        const data = await response.json();
+        console.log(`[Sync] Jellyfin returned ${data.TotalRecordCount} total items (Movies + Series)`);
+
+        let syncedMovies: MediaInterface[] = [];
+        let syncedSeries: MediaInterface[] = [];
+
+        (data.Items || []).forEach((item: any) => {
+          const hasPrimary = item.ImageTags && item.ImageTags.Primary;
+          const hasBackdrop = item.ImageTags && item.ImageTags.Backdrop || (item.BackdropImageTags && item.BackdropImageTags.length > 0);
+          const poster = hasPrimary ? `${baseUrl}/Items/${item.Id}/Images/Primary?api_key=${server.token}` : `https://picsum.photos/seed/jf${item.Id}/400/600`;
+          const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster;
+
+          if (item.Type === 'Series') {
+            syncedSeries.push({
+              id: item.Id,
+              title: item.Name || 'Unknown Title',
+              posterUrl: poster,
+              backdropUrl: backdrop,
+              type: 'tv' as const,
+              year: item.ProductionYear || new Date().getFullYear(),
+              rating: item.OfficialRating || 'NR',
+              description: item.Overview || 'No description available.',
+              genres: item.Genres || [],
+              streamUrl: '' // Series don't have a direct stream URL
+            });
+          } else {
+            // Treat as Movie
+            const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
+            const container = containerArray.find((c: string) => c === 'mp4') || containerArray.find((c: string) => c === 'webm') || containerArray[0];
+
+            syncedMovies.push({
+              id: item.Id,
+              title: item.Name || 'Unknown Title',
+              posterUrl: poster,
+              backdropUrl: backdrop,
+              type: 'movie' as const,
+              year: item.ProductionYear || new Date().getFullYear(),
+              rating: item.OfficialRating || 'NR',
+              description: item.Overview || 'No description available.',
+              genres: item.Genres || [],
+              streamUrl: ['mp4', 'webm', 'mov'].includes(container)
+                ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
+                : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`
+            });
+          }
+        });
+
+        const totalCount = syncedMovies.length + syncedSeries.length;
+        setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: totalCount } : s));
+        console.log(`[Sync] Total: ${syncedMovies.length} movies, ${syncedSeries.length} series`);
+
+        localStorage.setItem('streamparty_synced_movies', JSON.stringify(syncedMovies));
+        localStorage.setItem('streamparty_synced_series', JSON.stringify(syncedSeries));
+        eventBus.emit('movies-synced', syncedMovies);
+        eventBus.emit('series-synced', syncedSeries);
+
       } else {
         // Real sync for Plex
         console.log(`[Sync] Triggered Plex sync for server: ${server.name}`);
         const plexUrl = server.url.endsWith('/') ? server.url.slice(0, -1) : server.url;
 
         const response = await fetch(`${plexUrl}/library/recentlyAdded?X-Plex-Token=${server.token}`, {
-          headers: {
-            'Accept': 'application/json'
-          }
+          headers: { 'Accept': 'application/json' }
         });
 
         if (!response.ok) {
@@ -202,7 +189,6 @@ export function Servers() {
 
         const data = await response.json();
         const items = data.MediaContainer?.Metadata || [];
-        console.log(`[Sync] Mapped ${items.length} real movies from Plex`);
 
         const syncedMovies = items.map((item: any) => {
           const poster = item.thumb ? `${plexUrl}${item.thumb}?X-Plex-Token=${server.token}` : `https://picsum.photos/seed/plex${item.ratingKey}/400/600`;
@@ -227,15 +213,12 @@ export function Servers() {
           };
         });
 
-        setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: items.length || Math.floor(Math.random() * 2000) } : s));
+        setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: items.length } : s));
         localStorage.setItem('streamparty_synced_movies', JSON.stringify(syncedMovies));
         eventBus.emit('movies-synced', syncedMovies);
       }
     } catch (err: any) {
       console.error('Sync error:', err);
-      // Fallback simulating in case of CORS or network error
-      const newSize = Math.floor(Math.random() * 5000) + 500;
-      setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: newSize } : s));
     } finally {
       setSyncingId(null);
     }

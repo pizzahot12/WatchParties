@@ -19,17 +19,16 @@ export function Home() {
     // Load saved data
     const savedMovies = localStorage.getItem('streamparty_synced_movies');
     const savedSeries = localStorage.getItem('streamparty_synced_series');
-    if (savedMovies) setMovies(JSON.parse(savedMovies));
-    if (savedSeries) setSeries(JSON.parse(savedSeries));
 
-    // Fallback: if no separate storage, load legacy 'synced_movies' and split
-    if (!savedMovies && !savedSeries) {
-      const legacy = localStorage.getItem('streamparty_synced_movies');
-      if (legacy) {
-        const all: MediaInterface[] = JSON.parse(legacy);
-        setMovies(all.filter(m => m.type === 'movie'));
-        setSeries(all.filter(m => m.type === 'tv'));
-      }
+    if (savedSeries) {
+      // New format: separate storage
+      if (savedMovies) setMovies(JSON.parse(savedMovies));
+      setSeries(JSON.parse(savedSeries));
+    } else if (savedMovies) {
+      // Legacy format: everything in one array, split by type
+      const all: MediaInterface[] = JSON.parse(savedMovies);
+      setMovies(all.filter(m => m.type === 'movie'));
+      setSeries(all.filter(m => m.type === 'tv'));
     }
 
     const unsubMovies = eventBus.on('movies-synced', (data: MediaInterface[]) => {

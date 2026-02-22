@@ -2,9 +2,18 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { Home, Users, Server, User, Play, Monitor, LogOut, Library } from 'lucide-react';
 import { cn } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
+import { useEffect, useState } from 'react';
 
 export function Sidebar() {
   const navigate = useNavigate();
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+  }, []);
+
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: Play, label: 'Movies', path: '/movies' },
@@ -19,6 +28,13 @@ export function Sidebar() {
     await supabase.auth.signOut();
     window.location.href = '/';
   };
+
+  const displayName = user?.user_metadata?.full_name
+    || user?.user_metadata?.name
+    || user?.email?.split('@')[0]
+    || 'User';
+
+  const avatarUrl = user?.user_metadata?.avatar_url || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + (user?.email || 'user');
 
   return (
     <aside className="hidden lg:flex flex-col w-64 h-screen fixed left-0 top-0 bg-[#121212] border-r border-white/5 z-50">
@@ -40,8 +56,8 @@ export function Sidebar() {
             className={({ isActive }) =>
               cn(
                 "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
-                isActive 
-                  ? "bg-white/10 text-white font-medium shadow-sm" 
+                isActive
+                  ? "bg-white/10 text-white font-medium shadow-sm"
                   : "text-gray-400 hover:text-white hover:bg-white/5"
               )
             }
@@ -54,7 +70,7 @@ export function Sidebar() {
 
       {/* Logout Button */}
       <div className="px-4 py-2">
-        <button 
+        <button
           onClick={handleLogout}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-400/5 transition-all duration-200 group"
         >
@@ -67,15 +83,15 @@ export function Sidebar() {
       <div className="p-4 border-t border-white/5 bg-[#0A0A0A]">
         <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group" onClick={() => navigate('/profile')}>
           <div className="relative">
-            <img 
-              src="https://i.pravatar.cc/150?u=me" 
-              alt="My Avatar" 
-              className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-white/20 transition-all"
+            <img
+              src={avatarUrl}
+              alt="My Avatar"
+              className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-white/20 transition-all bg-white/5"
             />
             <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#121212]"></div>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">Alex Chen</p>
+            <p className="text-sm font-medium text-white truncate">{displayName}</p>
             <p className="text-xs text-gray-400 truncate group-hover:text-gray-300">Online</p>
           </div>
         </div>
