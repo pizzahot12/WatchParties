@@ -109,8 +109,8 @@ export function Servers() {
       if (server.type === 'jellyfin') {
         const baseUrl = server.url.replace(/\/$/, '');
 
-        // Fetch movies and series. We include 'Episode' as some servers won't return TV Series properly recursively unless requested
-        const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Series,Episode&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags&Limit=10000`, {
+        // Fetch movies and series. We include 'Episode' and 'Video' to catch unclassified library items.
+        const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Video&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags&Limit=20000`, {
           headers: { 'Accept': 'application/json' }
         });
 
@@ -137,7 +137,9 @@ export function Servers() {
             ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
             : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`;
 
-          if (item.Type === 'Episode') {
+          const itemType = item.Type || (item.IsFolder ? 'Series' : 'Movie');
+
+          if (itemType === 'Episode') {
             const seriesId = String(item.SeriesId || `series-${item.Id}`);
             if (!seriesMap.has(seriesId)) {
               seriesMap.set(seriesId, {
@@ -180,7 +182,7 @@ export function Servers() {
               streamUrl: streamUrl
             });
 
-          } else if (item.Type === 'Series') {
+          } else if (itemType === 'Series') {
             const sid = String(item.Id);
             if (!seriesMap.has(sid)) {
               seriesMap.set(sid, {
