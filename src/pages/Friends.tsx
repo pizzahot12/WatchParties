@@ -33,6 +33,9 @@ export function Friends() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Track which friends are in rooms: { friendId: { roomCode, mediaTitle, mediaId } }
+  const [friendRooms, setFriendRooms] = useState<Record<string, { code: string; media_title: string; media_id: string }>>({});
+
   // Add Friend Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [friendCode, setFriendCode] = useState('');
@@ -124,8 +127,46 @@ export function Friends() {
     setFriends(accepted);
     setPendingReceived(pendingIn);
     setPendingSent(pendingOut);
+
+    // Fetch which friends are currently in rooms
+    const friendIdList = accepted.map(f => f.id);
+    if (friendIdList.length > 0) {
+      const { data: participations } = await supabase
+        .from('room_participants')
+        .select('user_id, room_id')
+        .in('user_id', friendIdList);
+
+      if (participations && participations.length > 0) {
+        const roomIds = [...new Set(participations.map(p => p.room_id))];
+        const { data: rooms } = await supabase
+          .from('rooms')
+          .select('id, code, media_title, media_id')
+          .in('id', roomIds);
+
+        if (rooms) {
+          const roomMap: Record<string, { code: string; media_title: string; media_id: string }> = {};
+          participations.forEach(p => {
+            const room = rooms.find(r => r.id === p.room_id);
+            if (room) {
+              roomMap[p.user_id] = { code: room.code, media_title: room.media_title, media_id: room.media_id };
+            }
+          });
+          setFriendRooms(roomMap);
+        }
+      } else {
+        setFriendRooms({});
+      }
+    }
+
     setLoading(false);
   };
+
+  // Refresh friends' online status and room activity every 15s
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => fetchFriendships(user.id), 15_000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const handleAddFriend = async () => {
     if (!friendCode.trim() || !user) return;
@@ -296,62 +337,81 @@ export function Friends() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredFriends.map((friend, index) => (
-            <motion.div
-              key={friend.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              className="group relative bg-[#1A1A1A] border border-white/5 rounded-2xl overflow-hidden hover:border-white/10 hover:bg-[#222] transition-all duration-300 flex flex-col"
-            >
-              {/* Header */}
-              <div className={`h-24 w-full relative ${friend.is_online ? 'bg-green-500/5' : 'bg-gray-800/20'}`}>
-                <div className="absolute top-3 right-3">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${friend.is_online
-                      ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                      : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
-                    }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${friend.is_online ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
-                    {friend.is_online ? 'Online' : 'Offline'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Avatar & Info */}
-              <div className="px-5 pb-5 flex-1 flex flex-col -mt-10 relative z-10">
-                <div className="mb-3">
-                  <div className="w-20 h-20 rounded-2xl p-1 bg-[#1A1A1A] inline-block">
-                    <img
-                      src={friend.avatar_url || defaultAvatar(friend.id)}
-                      alt={friend.display_name}
-                      className="w-full h-full rounded-xl object-cover"
-                    />
+          {filteredFriends.map((friend, index) => {
+            const roomInfo = friendRooms[friend.id];
+            const isWatching = !!roomInfo;
+            return (
+              <motion.div
+                key={friend.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="group relative bg-[#1A1A1A] border border-white/5 rounded-2xl overflow-hidden hover:border-white/10 hover:bg-[#222] transition-all duration-300 flex flex-col"
+              >
+                {/* Header */}
+                <div className={`h-24 w-full relative ${isWatching ? 'bg-blue-500/10' : friend.is_online ? 'bg-green-500/5' : 'bg-gray-800/20'}`}>
+                  <div className="absolute top-3 right-3">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${isWatching ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                        friend.is_online ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                          'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                      }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isWatching ? 'bg-blue-400 animate-pulse' : friend.is_online ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
+                      {isWatching ? 'Watching' : friend.is_online ? 'Online' : 'Offline'}
+                    </span>
                   </div>
                 </div>
 
-                <div className="mb-4">
-                  <h3 className="text-lg font-bold text-white mb-1">{friend.display_name}</h3>
-                  <p className="text-sm text-gray-500">
-                    {friend.is_online ? 'Online now' : `Last seen ${new Date(friend.last_seen).toLocaleDateString()}`}
-                  </p>
-                </div>
+                {/* Avatar & Info */}
+                <div className="px-5 pb-5 flex-1 flex flex-col -mt-10 relative z-10">
+                  <div className="mb-3">
+                    <div className="w-20 h-20 rounded-2xl p-1 bg-[#1A1A1A] inline-block">
+                      <img
+                        src={friend.avatar_url || defaultAvatar(friend.id)}
+                        alt={friend.display_name}
+                        className="w-full h-full rounded-xl object-cover"
+                      />
+                    </div>
+                  </div>
 
-                <div className="mt-auto pt-4 border-t border-white/5 flex gap-2">
-                  <Button variant="secondary" size="sm" className="flex-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/5">
-                    <MessageCircle className="w-4 h-4 mr-2" />
-                    Message
-                  </Button>
-                  <button
-                    onClick={() => handleReject(friend.friendshipId)}
-                    className="p-2 rounded-lg bg-white/5 text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
-                    title="Remove friend"
-                  >
-                    <UserX className="w-4 h-4" />
-                  </button>
+                  <div className="mb-4">
+                    <h3 className="text-lg font-bold text-white mb-1">{friend.display_name}</h3>
+                    {isWatching ? (
+                      <div className="text-sm">
+                        <span className="text-blue-400 text-xs font-bold uppercase tracking-wide block mb-1">Watching Now</span>
+                        <p className="text-gray-300 line-clamp-1 font-medium">{roomInfo.media_title || 'A movie'}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        {friend.is_online ? 'Online now' : `Last seen ${new Date(friend.last_seen).toLocaleDateString()}`}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-auto pt-4 border-t border-white/5 flex gap-2">
+                    {isWatching ? (
+                      <Link to={`/watch/${roomInfo.media_id}?room=${roomInfo.code}`} className="flex-1">
+                        <Button size="sm" className="w-full text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white border-none shadow-lg shadow-blue-900/20 gap-1">
+                          <Play className="w-3.5 h-3.5 fill-current" /> Join Watch Party
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Button variant="secondary" size="sm" className="flex-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/5">
+                        <MessageCircle className="w-4 h-4 mr-2" />
+                        Message
+                      </Button>
+                    )}
+                    <button
+                      onClick={() => handleReject(friend.friendshipId)}
+                      className="p-2 rounded-lg bg-white/5 text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                      title="Remove friend"
+                    >
+                      <UserX className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
 
           {/* Add Friend Card */}
           <motion.button

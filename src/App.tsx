@@ -19,6 +19,7 @@ import { supabase } from './lib/supabase';
 import { MovieCard } from './components/MovieCard';
 import { eventBus } from './utils/events';
 import { MediaInterface } from './types';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
 
 // Media Pages
 function MediaPage({ title, type }: { title: string, type: string }) {
@@ -76,6 +77,9 @@ function MediaPage({ title, type }: { title: string, type: string }) {
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Track online status globally
+  useOnlineStatus();
 
   useEffect(() => {
     // Handle demo login for preview
