@@ -68,17 +68,15 @@ export function GlobalChatBubble() {
         }
 
         // Load all unread counts
-        const { data: unread } = await supabase
+        const { data: msgs, error } = await supabase
             .from('direct_messages')
-            .select('sender_id, count')
+            .select('sender_id')
             .eq('receiver_id', userId)
             .eq('read', false);
 
-        if (unread) {
+        if (!error && msgs) {
             const counts: Record<string, number> = {};
-            // raw count array from supabase is just rows, doing simple aggregation here is safer
-            const { data: msgs } = await supabase.from('direct_messages').select('sender_id').eq('receiver_id', userId).eq('read', false);
-            msgs?.forEach(m => {
+            msgs.forEach(m => {
                 counts[m.sender_id] = (counts[m.sender_id] || 0) + 1;
             });
             setUnreadCounts(counts);
