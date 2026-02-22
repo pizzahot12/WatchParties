@@ -68,7 +68,7 @@ export function generateRoomCode(): string {
 }
 
 // Create a room in Supabase
-export async function createRoom(mediaId: string, mediaTitle: string, mediaPoster: string) {
+export async function createRoom(mediaId: string, mediaTitle: string, mediaPoster: string, visibility: 'public' | 'friends' | 'private' = 'public') {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
@@ -82,6 +82,7 @@ export async function createRoom(mediaId: string, mediaTitle: string, mediaPoste
             media_id: mediaId,
             media_title: mediaTitle,
             media_poster: mediaPoster,
+            visibility,
         })
         .select()
         .single();

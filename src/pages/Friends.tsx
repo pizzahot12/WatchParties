@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, MessageCircle, Play, UserPlus, UserCheck, UserX, X, Copy, Check, Hash, Clock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, MessageCircle, Play, UserPlus, UserCheck, UserX, X, Copy, Check, Hash, Clock, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Link } from 'react-router-dom';
@@ -24,6 +24,14 @@ interface FriendshipRow {
   profile?: FriendProfile;
 }
 
+interface DMMessage {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  created_at: string;
+}
+
 export function Friends() {
   const [user, setUser] = useState<any>(null);
   const [myProfile, setMyProfile] = useState<FriendProfile | null>(null);
@@ -33,7 +41,7 @@ export function Friends() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Track which friends are in rooms: { friendId: { roomCode, mediaTitle, mediaId } }
+  // Track which friends are in rooms
   const [friendRooms, setFriendRooms] = useState<Record<string, { code: string; media_title: string; media_id: string }>>({});
 
   // Add Friend Modal
@@ -42,6 +50,13 @@ export function Friends() {
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // DM Chat Popup
+  const [chatFriend, setChatFriend] = useState<FriendProfile | null>(null);
+  const [dmMessages, setDmMessages] = useState<DMMessage[]>([]);
+  const [dmInput, setDmInput] = useState('');
+  const [dmSending, setDmSending] = useState(false);
+  const dmEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     init();
@@ -128,6 +143,9 @@ export function Friends() {
     setPendingReceived(pendingIn);
     setPendingSent(pendingOut);
 
+    // Always reset room activity — will be repopulated if any friend is in a room
+    let newRoomMap: Record<string, { code: string; media_title: string; media_id: string }> = {};
+
     // Fetch which friends are currently in rooms
     const friendIdList = accepted.map(f => f.id);
     if (friendIdList.length > 0) {
@@ -144,19 +162,34 @@ export function Friends() {
           .in('id', roomIds);
 
         if (rooms) {
-          const roomMap: Record<string, { code: string; media_title: string; media_id: string }> = {};
           participations.forEach(p => {
             const room = rooms.find(r => r.id === p.room_id);
             if (room) {
-              roomMap[p.user_id] = { code: room.code, media_title: room.media_title, media_id: room.media_id };
+              newRoomMap[p.user_id] = { code: room.code, media_title: room.media_title, media_id: room.media_id };
             }
           });
-          setFriendRooms(roomMap);
         }
-      } else {
-        setFriendRooms({});
       }
     }
+    setFriendRooms(newRoomMap);
+
+    // Clean up stale rooms (empty for > 2 minutes)
+    try {
+      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const { data: allRooms } = await supabase
+        .from('rooms')
+        .select('id, created_at, room_participants(count)')
+        .lt('created_at', twoMinAgo);
+
+      if (allRooms) {
+        for (const room of allRooms) {
+          const count = room.room_participants?.[0]?.count || 0;
+          if (count === 0) {
+            await supabase.from('rooms').delete().eq('id', room.id);
+          }
+        }
+      }
+    } catch (_) { /* cleanup is best-effort */ }
 
     setLoading(false);
   };
@@ -237,6 +270,63 @@ export function Friends() {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     }
+  };
+  // ---- DM Chat Functions ----
+  const openChat = async (friend: FriendProfile) => {
+    setChatFriend(friend);
+    setDmInput('');
+
+    // Load existing messages
+    const { data } = await supabase
+      .from('direct_messages')
+      .select('*')
+      .or(`and(sender_id.eq.${user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${user.id})`)
+      .order('created_at', { ascending: true })
+      .limit(100);
+
+    setDmMessages(data || []);
+    setTimeout(() => dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+  };
+
+  // Realtime DM subscription
+  useEffect(() => {
+    if (!chatFriend || !user) return;
+
+    const channel = supabase
+      .channel(`dm-${[user.id, chatFriend.id].sort().join('-')}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'direct_messages',
+      }, (payload) => {
+        const msg = payload.new as DMMessage;
+        // Only add if relevant to this conversation
+        if ((msg.sender_id === user.id && msg.receiver_id === chatFriend.id) ||
+          (msg.sender_id === chatFriend.id && msg.receiver_id === user.id)) {
+          setDmMessages(prev => {
+            if (prev.find(m => m.id === msg.id)) return prev;
+            return [...prev, msg];
+          });
+          setTimeout(() => dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [chatFriend, user]);
+
+  const sendDM = async () => {
+    if (!dmInput.trim() || !chatFriend || !user || dmSending) return;
+    setDmSending(true);
+
+    const { error } = await supabase.from('direct_messages').insert({
+      sender_id: user.id,
+      receiver_id: chatFriend.id,
+      content: dmInput.trim(),
+    });
+
+    if (!error) setDmInput('');
+    setDmSending(false);
   };
 
   const filteredFriends = friends.filter(f =>
@@ -352,8 +442,8 @@ export function Friends() {
                 <div className={`h-24 w-full relative ${isWatching ? 'bg-blue-500/10' : friend.is_online ? 'bg-green-500/5' : 'bg-gray-800/20'}`}>
                   <div className="absolute top-3 right-3">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${isWatching ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                        friend.is_online ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                          'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                      friend.is_online ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                        'bg-gray-500/10 text-gray-400 border-gray-500/20'
                       }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${isWatching ? 'bg-blue-400 animate-pulse' : friend.is_online ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
                       {isWatching ? 'Watching' : friend.is_online ? 'Online' : 'Offline'}
@@ -388,18 +478,20 @@ export function Friends() {
                   </div>
 
                   <div className="mt-auto pt-4 border-t border-white/5 flex gap-2">
-                    {isWatching ? (
+                    {isWatching && (
                       <Link to={`/watch/${roomInfo.media_id}?room=${roomInfo.code}`} className="flex-1">
                         <Button size="sm" className="w-full text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white border-none shadow-lg shadow-blue-900/20 gap-1">
-                          <Play className="w-3.5 h-3.5 fill-current" /> Join Watch Party
+                          <Play className="w-3.5 h-3.5 fill-current" /> Join
                         </Button>
                       </Link>
-                    ) : (
-                      <Button variant="secondary" size="sm" className="flex-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/5">
-                        <MessageCircle className="w-4 h-4 mr-2" />
-                        Message
-                      </Button>
                     )}
+                    <button
+                      onClick={() => openChat(friend)}
+                      className={`${isWatching ? '' : 'flex-1'} flex items-center justify-center gap-2 p-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-gray-300 hover:text-white transition-colors`}
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      {!isWatching && <span>Message</span>}
+                    </button>
                     <button
                       onClick={() => handleReject(friend.friendshipId)}
                       className="p-2 rounded-lg bg-white/5 text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
@@ -469,6 +561,92 @@ export function Friends() {
               </Button>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* DM Chat Popup */}
+      <AnimatePresence>
+        {chatFriend && (
+          <motion.div
+            initial={{ opacity: 0, y: 100, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 100, scale: 0.95 }}
+            className="fixed bottom-4 right-4 md:bottom-6 md:right-6 w-[360px] max-w-[calc(100vw-2rem)] bg-[#121212] border border-white/10 rounded-2xl shadow-2xl shadow-black/50 flex flex-col z-[200] overflow-hidden"
+            style={{ height: '480px' }}
+          >
+            {/* Chat Header */}
+            <div className="flex items-center gap-3 p-4 border-b border-white/5 bg-[#0e0e0e]">
+              <img
+                src={chatFriend.avatar_url || `https://i.pravatar.cc/150?u=${chatFriend.id}`}
+                alt={chatFriend.display_name}
+                className="w-10 h-10 rounded-full object-cover"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-white text-sm truncate">{chatFriend.display_name}</p>
+                <p className={`text-[10px] font-bold uppercase ${chatFriend.is_online ? 'text-green-400' : 'text-gray-500'}`}>
+                  {chatFriend.is_online ? 'Online' : 'Offline'}
+                </p>
+              </div>
+              <button
+                onClick={() => setChatFriend(null)}
+                className="p-2 rounded-full hover:bg-white/5 text-gray-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {dmMessages.length === 0 && (
+                <div className="text-center py-8 text-gray-600">
+                  <MessageCircle className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                  <p className="text-xs">Start a conversation with {chatFriend.display_name}</p>
+                </div>
+              )}
+              {dmMessages.map(msg => {
+                const isMe = msg.sender_id === user?.id;
+                return (
+                  <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm ${isMe
+                      ? 'bg-green-600 text-white rounded-tr-sm'
+                      : 'bg-white/10 text-gray-200 rounded-tl-sm'
+                      }`}>
+                      <p>{msg.content}</p>
+                      <p className={`text-[9px] mt-1 ${isMe ? 'text-green-200/60' : 'text-gray-500'}`}>
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={dmEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-white/5 bg-[#0e0e0e]">
+              <form
+                onSubmit={e => { e.preventDefault(); sendDM(); }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={dmInput}
+                  onChange={e => setDmInput(e.target.value)}
+                  placeholder="Type a message..."
+                  autoComplete="off"
+                  className="flex-1 bg-[#1A1A1A] text-white rounded-full py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 placeholder-gray-600"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  disabled={!dmInput.trim() || dmSending}
+                  className="p-2.5 bg-green-500 text-black rounded-full hover:bg-green-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

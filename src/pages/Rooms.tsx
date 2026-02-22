@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabase';
 import { createRoom, joinRoomByCode, leaveRoom, deleteRoom } from '../hooks/useRoomPresence';
-import { Play, Plus, Hash, Users, Trash2, Copy, Check, LogOut, X, Tv } from 'lucide-react';
+import { Play, Plus, Hash, Users, Trash2, Copy, Check, LogOut, X, Tv, Globe, ShieldCheck, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MediaInterface } from '../types';
 
@@ -26,6 +26,7 @@ export function Rooms() {
     const [selectedMedia, setSelectedMedia] = useState<MediaInterface | null>(null);
     const [mediaSearch, setMediaSearch] = useState('');
     const [copiedCode, setCopiedCode] = useState<string | null>(null);
+    const [visibility, setVisibility] = useState<'public' | 'friends' | 'private'>('public');
 
     useEffect(() => {
         supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
@@ -88,9 +89,10 @@ export function Rooms() {
                 }
             }
 
-            const room = await createRoom(mediaId, selectedMedia.title, selectedMedia.posterUrl);
+            const room = await createRoom(mediaId, selectedMedia.title, selectedMedia.posterUrl, visibility);
             setShowCreate(false);
             setSelectedMedia(null);
+            setVisibility('public');
             navigate(`/watch/${mediaId}?room=${room.code}`);
         } catch (err: any) {
             alert('Error creating room: ' + err.message);
@@ -311,6 +313,31 @@ export function Rooms() {
                                         </div>
                                     </button>
                                 ))}
+                            </div>
+
+                            {/* Visibility Selector */}
+                            <div className="mb-4">
+                                <p className="text-xs text-gray-500 uppercase tracking-wider font-bold mb-2">Room Privacy</p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { value: 'public' as const, label: 'Public', icon: Globe, desc: 'Anyone with code' },
+                                        { value: 'friends' as const, label: 'Friends', icon: ShieldCheck, desc: 'Only my friends' },
+                                        { value: 'private' as const, label: 'Private', icon: Lock, desc: 'Invite only' },
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.value}
+                                            onClick={() => setVisibility(opt.value)}
+                                            className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${visibility === opt.value
+                                                    ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                                                    : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10'
+                                                }`}
+                                        >
+                                            <opt.icon className="w-5 h-5" />
+                                            <span className="text-xs font-bold">{opt.label}</span>
+                                            <span className="text-[9px] text-gray-500">{opt.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <Button onClick={handleCreate} disabled={!selectedMedia || creating} className="w-full py-3 rounded-xl">

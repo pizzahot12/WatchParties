@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, FormEvent, useMemo, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { featuredMedia, trendingMedia, libraryMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw, Settings, Hash, Copy, Check, UserX, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
@@ -61,7 +61,7 @@ export function WatchParty() {
     }
   }
 
-  const [activeTab, setActiveTab] = useState<'chat' | 'people'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'people' | 'admin'>('chat');
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -74,7 +74,21 @@ export function WatchParty() {
   // Room presence: list of connected participants
   const [roomParticipants, setRoomParticipants] = useState<{ user_id: string; display_name: string; avatar_url: string | null }[]>([]);
 
-  // Load current user info once
+  // Admin panel
+  const [searchParams] = useSearchParams();
+  const roomCode = searchParams.get('room') || '';
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [copiedRoomCode, setCopiedRoomCode] = useState(false);
+  const [roomHostId, setRoomHostId] = useState<string | null>(null);
+  const isHost = currentUser?.id === roomHostId;
+
+  // Load room host info
+  useEffect(() => {
+    if (!roomCode) return;
+    supabase.from('rooms').select('host_id').eq('code', roomCode.toUpperCase()).single()
+      .then(({ data }) => { if (data) setRoomHostId(data.host_id); });
+  }, [roomCode]);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
@@ -86,6 +100,14 @@ export function WatchParty() {
       }
     });
   }, []);
+
+  const handleKickUser = async (userId: string) => {
+    if (!roomCode || !isHost) return;
+    const { data: room } = await supabase.from('rooms').select('id').eq('code', roomCode.toUpperCase()).single();
+    if (room) {
+      await supabase.from('room_participants').delete().eq('room_id', room.id).eq('user_id', userId);
+    }
+  };
 
   // Always start in loading state — cleared once sources are ready
   const [isLoadingStream, setIsLoadingStream] = useState(true);
@@ -823,11 +845,74 @@ export function WatchParty() {
           >
             <Users className="w-4 h-4" /> People ({roomParticipants.length || 1})
           </button>
+          {isHost && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'admin' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
+                }`}
+            >
+              <Settings className="w-4 h-4" /> Admin
+            </button>
+          )}
         </div>
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#121212]">
-          {activeTab === 'chat' ? (
+          {activeTab === 'admin' && isHost ? (
+            <div className="space-y-6">
+              <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4">
+                <h3 className="text-white font-bold mb-1 flex items-center gap-2">
+                  <Hash className="w-4 h-4 text-green-500" />
+                  Room Code
+                </h3>
+                <p className="text-gray-400 text-xs mb-3">Share this code with friends to join.</p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomCode);
+                    setCopiedRoomCode(true);
+                    setTimeout(() => setCopiedRoomCode(false), 2000);
+                  }}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-black/50 hover:bg-black border border-white/10 rounded-xl transition-colors font-mono font-bold tracking-[0.2em] text-green-400"
+                >
+                  {roomCode}
+                  {copiedRoomCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4 text-gray-500" />}
+                </button>
+              </div>
+
+              <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4">
+                <h3 className="text-white font-bold mb-1 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-500" />
+                  Manage Users
+                </h3>
+                <p className="text-gray-400 text-xs mb-4">You can remove users from your room.</p>
+                <div className="space-y-2">
+                  {roomParticipants.filter(p => p.user_id !== currentUser?.id).length === 0 ? (
+                    <p className="text-xs text-gray-500 text-center py-4">No other users in the room.</p>
+                  ) : (
+                    roomParticipants.filter(p => p.user_id !== currentUser?.id).map((p) => (
+                      <div key={p.user_id} className="flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5">
+                        <div className="flex items-center gap-3">
+                          <img src={p.avatar_url || `https://i.pravatar.cc/150?u=${p.user_id}`} alt={p.display_name} className="w-8 h-8 rounded-full" />
+                          <p className="font-medium text-sm text-white">{p.display_name}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Kick ${p.display_name} from the room?`)) {
+                              handleKickUser(p.user_id);
+                            }
+                          }}
+                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Kick User"
+                        >
+                          <UserX className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'chat' ? (
             <div className="space-y-4">
               {messages.length === 0 && (
                 <div className="text-center py-12 text-gray-600">
