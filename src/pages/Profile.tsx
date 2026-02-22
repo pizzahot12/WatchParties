@@ -5,23 +5,36 @@ import { supabase } from '../lib/supabase';
 
 export function Profile() {
   const [user, setUser] = useState<any>(null);
+  const [movieCount, setMovieCount] = useState(0);
+  const [seriesCount, setSeriesCount] = useState(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
     });
+    // Load actual library counts
+    try {
+      const movies = JSON.parse(localStorage.getItem('streamparty_synced_movies') || '[]');
+      const series = JSON.parse(localStorage.getItem('streamparty_synced_series') || '[]');
+      setMovieCount(movies.length);
+      setSeriesCount(series.length);
+    } catch (_) { }
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // If it's a demo user, we might need to manually reset the session in App.tsx
-    // but usually signOut handles it if it's a real Supabase session.
-    // For the demo-login event, we might need to reload or dispatch another event.
     window.location.href = '/';
   };
 
-  const username = user?.email?.split('@')[0] || 'User';
+  // Use display name from user metadata, fall back to email username
+  const displayName = user?.user_metadata?.full_name
+    || user?.user_metadata?.name
+    || user?.email?.split('@')[0]
+    || 'User';
   const email = user?.email || 'user@example.com';
+  const joinDate = user?.created_at
+    ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : 'Recently';
 
   return (
     <div className="p-6 md:p-12 pb-24 max-w-4xl mx-auto">
@@ -30,9 +43,9 @@ export function Profile() {
       <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-8 mb-8 flex flex-col md:flex-row items-center gap-8">
         <div className="relative">
           <div className="w-32 h-32 rounded-full p-1 bg-gradient-to-br from-green-400 to-blue-500">
-            <img 
-              src={`https://i.pravatar.cc/150?u=${user?.id || 'me'}`} 
-              alt="Profile" 
+            <img
+              src={`https://i.pravatar.cc/150?u=${user?.id || 'me'}`}
+              alt="Profile"
               className="w-full h-full rounded-full object-cover border-4 border-[#1A1A1A]"
             />
           </div>
@@ -40,32 +53,29 @@ export function Profile() {
             <Settings className="w-4 h-4" />
           </button>
         </div>
-        
+
         <div className="flex-1 text-center md:text-left">
-          <h2 className="text-2xl font-bold mb-1">{username}</h2>
-          <p className="text-gray-400 mb-4">{email} • Joined March 2024</p>
+          <h2 className="text-2xl font-bold mb-1">{displayName}</h2>
+          <p className="text-gray-400 mb-4">{email} • Joined {joinDate}</p>
           <div className="flex flex-wrap justify-center md:justify-start gap-3">
             <span className="px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 text-xs font-bold uppercase tracking-wider border border-purple-500/20">
               Pro Member
-            </span>
-            <span className="px-3 py-1 rounded-full bg-white/5 text-gray-300 text-xs font-bold uppercase tracking-wider border border-white/10">
-              Level 12
             </span>
           </div>
         </div>
 
         <div className="flex gap-6 text-center">
           <div>
-            <p className="text-2xl font-mono font-bold">142</p>
+            <p className="text-2xl font-mono font-bold">{movieCount}</p>
             <p className="text-xs text-gray-500 uppercase tracking-wider">Movies</p>
           </div>
           <div>
-            <p className="text-2xl font-mono font-bold">28</p>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">Friends</p>
+            <p className="text-2xl font-mono font-bold">{seriesCount}</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wider">Series</p>
           </div>
           <div>
-            <p className="text-2xl font-mono font-bold">456h</p>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">Time</p>
+            <p className="text-2xl font-mono font-bold">{movieCount + seriesCount}</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wider">Total</p>
           </div>
         </div>
       </div>

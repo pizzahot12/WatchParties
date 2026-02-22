@@ -109,7 +109,7 @@ export function Servers() {
       if (server.type === 'jellyfin') {
         const baseUrl = server.url.replace(/\/$/, '');
         console.log(`[Sync] Fetching jellyfin items from url: ${baseUrl}/Items?api_key=HIDDEN&Recursive=true&IncludeItemTypes=Movie,Episode`);
-        const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Episode&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags`, {
+        const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Series&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags`, {
           method: 'GET',
           headers: { 'Accept': 'application/json' }
         });
@@ -123,54 +123,46 @@ export function Servers() {
           const count = data.TotalRecordCount || Math.floor(Math.random() * 2000) + 100;
           setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: count } : s));
 
-          let syncedMovies = [];
+          let syncedMovies: MediaInterface[] = [];
+          let syncedSeries: MediaInterface[] = [];
           if (data.Items && data.Items.length > 0) {
-            syncedMovies = data.Items.map((item: any) => {
+            const allItems = data.Items.map((item: any) => {
               const hasPrimary = item.ImageTags && item.ImageTags.Primary;
               const hasBackdrop = item.ImageTags && item.ImageTags.Backdrop || (item.BackdropImageTags && item.BackdropImageTags.length > 0);
 
               const poster = hasPrimary ? `${baseUrl}/Items/${item.Id}/Images/Primary?api_key=${server.token}` : `https://picsum.photos/seed/jf${item.Id}/400/600`;
-              const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster; // fallback to poster if missing
+              const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster;
 
               const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
-              // Prefer mp4 or webm if they exist in the metadata string to avoid browser codec issues
               const container = containerArray.find((c: string) => c === 'mp4') || containerArray.find((c: string) => c === 'webm') || containerArray[0];
+
+              const mediaType = (item.Type === 'Episode' || item.Type === 'Series') ? 'tv' as const : 'movie' as const;
 
               return {
                 id: item.Id,
                 title: item.Name || 'Unknown Title',
                 posterUrl: poster,
                 backdropUrl: backdrop,
-                type: item.Type === 'Episode' ? 'tv' as const : 'movie' as const,
+                type: mediaType,
                 year: item.ProductionYear || new Date().getFullYear(),
                 rating: item.OfficialRating || 'NR',
-                description: item.Overview || 'No description available. Sourced directly from your Jellyfin server!',
+                description: item.Overview || 'No description available.',
                 genres: item.Genres || [],
                 streamUrl: ['mp4', 'webm', 'mov'].includes(container)
                   ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
                   : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`
               };
             });
-            console.log(`[Sync] Mapped ${syncedMovies.length} real movies/TVs`);
-          } else {
-            console.log(`[Sync] Creating mock fallback movies because data.Items is empty`);
-            // Generate realistic looking mock movies for Jellyfin sync ONLY if library is empty
-            syncedMovies = Array.from({ length: 6 }).map((_, i) => ({
-              id: `sync-jf-${Date.now()}-${i}`,
-              title: `Jellyfin Synced Movie ${i + 1}`,
-              posterUrl: `https://picsum.photos/seed/jf${i}${server.id}/400/600`,
-              backdropUrl: `https://picsum.photos/seed/bg-jf${i}/1920/1080`,
-              type: 'movie' as const,
-              year: 2020 + (i % 5),
-              rating: 'PG-13',
-              description: 'A great movie synchronized from your Jellyfin server. Enjoy watching with friends!',
-              genres: ['Action', 'Sci-Fi'],
-              streamUrl: ''
-            }));
+
+            syncedMovies = allItems.filter((m: MediaInterface) => m.type === 'movie');
+            syncedSeries = allItems.filter((m: MediaInterface) => m.type === 'tv');
+            console.log(`[Sync] ${syncedMovies.length} movies, ${syncedSeries.length} series`);
           }
 
           localStorage.setItem('streamparty_synced_movies', JSON.stringify(syncedMovies));
+          localStorage.setItem('streamparty_synced_series', JSON.stringify(syncedSeries));
           eventBus.emit('movies-synced', syncedMovies);
+          eventBus.emit('series-synced', syncedSeries);
 
         } else {
           // Ensure it delays a bit to show the UI feedback
