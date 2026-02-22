@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, FormEvent, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { featuredMedia, trendingMedia, mockChatMessages, friendsList, libraryMedia } from '../data/mockData';
+import { featuredMedia, trendingMedia, libraryMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -63,11 +63,29 @@ export function WatchParty() {
 
   const [activeTab, setActiveTab] = useState<'chat' | 'people'>('chat');
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const [messages, setMessages] = useState(mockChatMessages);
+  const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+
+  // Current user info for chat
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; avatar: string } | null>(null);
+  // Room presence: list of connected participants
+  const [roomParticipants, setRoomParticipants] = useState<{ user_id: string; display_name: string; avatar_url: string | null }[]>([]);
+
+  // Load current user info once
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setCurrentUser({
+          id: user.id,
+          name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          avatar: user.user_metadata?.avatar_url || `https://i.pravatar.cc/150?u=${user.id}`,
+        });
+      }
+    });
+  }, []);
 
   // Always start in loading state — cleared once sources are ready
   const [isLoadingStream, setIsLoadingStream] = useState(true);
@@ -517,10 +535,31 @@ export function WatchParty() {
         else if (typeof player.pause === 'function') player.pause();
         setTimeout(() => { isRemoteAction.current = false; }, 1000);
       })
-      .subscribe((status) => {
+      // Presence: track real connected users
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const users: { user_id: string; display_name: string; avatar_url: string | null }[] = [];
+        Object.values(state).forEach((presences: any[]) => {
+          presences.forEach((p) => {
+            if (!users.find(u => u.user_id === p.user_id)) {
+              users.push({ user_id: p.user_id, display_name: p.display_name, avatar_url: p.avatar_url });
+            }
+          });
+        });
+        setRoomParticipants(users);
+      })
+      .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           setIsRealtimeConnected(true);
           channel.send({ type: 'broadcast', event: 'request-sync', payload: {} });
+          // Track presence
+          if (currentUser) {
+            await channel.track({
+              user_id: currentUser.id,
+              display_name: currentUser.name,
+              avatar_url: currentUser.avatar,
+            });
+          }
         } else {
           setIsRealtimeConnected(false);
         }
@@ -687,17 +726,19 @@ export function WatchParty() {
 
   const handleSendMessage = (e: FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !currentUser) return;
 
     const msg = {
       id: Date.now().toString(),
-      userId: 'me',
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: currentUser.avatar,
       content: newMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type: 'text' as const
     };
 
-    setMessages([...messages, msg]);
+    setMessages(prev => [...prev, msg]);
     setNewMessage('');
 
     // Broadcast message to others
@@ -765,14 +806,14 @@ export function WatchParty() {
         {/* Tabs */}
         <div className="flex border-b border-white/5">
           <button
-            onClick={() => setActiveTab('chat')}
+            onClick={() => { setActiveTab('chat'); setUnreadMessages(0); }}
             className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors relative ${activeTab === 'chat' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
               }`}
           >
             <MessageSquare className="w-4 h-4" />
             Chat
             {unreadMessages > 0 && activeTab !== 'chat' && (
-              <span className="absolute top-3 right-8 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white rounded-full">{unreadMessages}</span>
             )}
           </button>
           <button
@@ -780,7 +821,7 @@ export function WatchParty() {
             className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'people' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
               }`}
           >
-            <Users className="w-4 h-4" /> People (4)
+            <Users className="w-4 h-4" /> People ({roomParticipants.length || 1})
           </button>
         </div>
 
@@ -788,44 +829,63 @@ export function WatchParty() {
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#121212]">
           {activeTab === 'chat' ? (
             <div className="space-y-4">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex gap-3 ${msg.userId === 'me' ? 'flex-row-reverse' : ''}`}>
-                  <img
-                    src={msg.userId === 'me' ? 'https://i.pravatar.cc/150?u=me' : (friendsList.find(u => u.id === msg.userId)?.avatarUrl || 'https://i.pravatar.cc/150')}
-                    alt="Avatar"
-                    className="w-8 h-8 rounded-full object-cover mt-1 flex-shrink-0"
-                  />
-                  <div className={`max-w-[80%] flex flex-col ${msg.userId === 'me' ? 'items-end' : 'items-start'}`}>
-                    <div className={`px-4 py-2 rounded-2xl text-sm ${msg.userId === 'me'
-                      ? 'bg-green-600 text-white rounded-tr-none'
-                      : 'bg-white/10 text-gray-200 rounded-tl-none'
-                      }`}>
-                      {msg.type === 'emoji' ? <span className="text-2xl">{msg.content}</span> : msg.content}
-                    </div>
-                    <span className="text-[10px] text-gray-500 mt-1 px-1">{msg.timestamp}</span>
-                  </div>
+              {messages.length === 0 && (
+                <div className="text-center py-12 text-gray-600">
+                  <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">No messages yet.</p>
+                  <p className="text-xs">Start the conversation!</p>
                 </div>
-              ))}
+              )}
+              {messages.map((msg) => {
+                const isMe = msg.userId === currentUser?.id;
+                const senderName = msg.userName || 'Unknown';
+                const senderAvatar = msg.userAvatar || `https://i.pravatar.cc/150?u=${msg.userId}`;
+                return (
+                  <div key={msg.id} className={`flex gap-3 ${isMe ? 'flex-row-reverse' : ''}`}>
+                    <img
+                      src={senderAvatar}
+                      alt={senderName}
+                      className="w-8 h-8 rounded-full object-cover mt-1 flex-shrink-0 bg-white/5"
+                    />
+                    <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <span className={`text-[10px] font-bold mb-0.5 px-1 ${isMe ? 'text-green-400' : 'text-blue-400'}`}>{senderName}</span>
+                      <div className={`px-4 py-2 rounded-2xl text-sm ${isMe
+                        ? 'bg-green-600 text-white rounded-tr-none'
+                        : 'bg-white/10 text-gray-200 rounded-tl-none'
+                        }`}>
+                        {msg.type === 'emoji' ? <span className="text-2xl">{msg.content}</span> : msg.content}
+                      </div>
+                      <span className="text-[10px] text-gray-500 mt-1 px-1">{msg.timestamp}</span>
+                    </div>
+                  </div>
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
           ) : (
             <div className="space-y-2">
-              {friendsList.map((user) => (
-                <div key={user.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <img src={user.avatarUrl} alt={user.username} className="w-10 h-10 rounded-full" />
-                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#121212]" />
-                    </div>
-                    <span className="font-medium">{user.username}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="p-2 rounded-full bg-white/5 hover:bg-white/10" aria-label={`Mute ${user.username}`}>
-                      <Mic className="w-4 h-4" />
-                    </button>
-                  </div>
+              {/* Connected participants from Presence */}
+              {roomParticipants.length === 0 ? (
+                <div className="text-center py-12 text-gray-600">
+                  <Users className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">Connecting...</p>
                 </div>
-              ))}
+              ) : (
+                roomParticipants.map((user) => (
+                  <div key={user.user_id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <img src={user.avatar_url || `https://i.pravatar.cc/150?u=${user.user_id}`} alt={user.display_name} className="w-10 h-10 rounded-full object-cover bg-white/5" />
+                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#121212]" />
+                      </div>
+                      <div>
+                        <span className="font-medium text-white">{user.display_name}</span>
+                        {user.user_id === currentUser?.id && <span className="text-[10px] text-green-400 ml-2 font-bold">(You)</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -840,12 +900,10 @@ export function WatchParty() {
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
                 aria-label="Chat message"
+                autoComplete="off"
                 className="w-full bg-[#1A1A1A] text-white rounded-full py-3 pl-4 pr-12 focus:outline-none focus:ring-2 focus:ring-green-500/50 placeholder-gray-500"
               />
               <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                <button type="button" className="p-2 text-gray-400 hover:text-white transition-colors" aria-label="Add emoji">
-                  <Smile className="w-5 h-5" />
-                </button>
                 <button
                   type="submit"
                   disabled={!newMessage.trim()}

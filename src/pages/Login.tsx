@@ -13,7 +13,7 @@ export function Login() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!isSupabaseConfigured) {
       setError("Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment variables.");
       return;
@@ -64,7 +64,7 @@ export function Login() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0A0A0A] p-6">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md bg-[#121212] rounded-3xl p-8 border border-white/5 shadow-2xl"
@@ -81,7 +81,7 @@ export function Login() {
           </p>
         </div>
 
-        <form onSubmit={handleAuth} className="space-y-4">
+        <form onSubmit={handleAuth} className="space-y-4" autoComplete="off">
           {!isSupabaseConfigured && (
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6">
               <div className="flex gap-3">
@@ -100,11 +100,12 @@ export function Login() {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">Email Address</label>
             <div className="relative">
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-              <input 
+              <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="off"
                 disabled={!isSupabaseConfigured}
                 className="w-full bg-[#1A1A1A] border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="name@example.com"
@@ -116,11 +117,12 @@ export function Login() {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">Password</label>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-              <input 
+              <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="off"
                 disabled={!isSupabaseConfigured}
                 className="w-full bg-[#1A1A1A] border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="••••••••"
@@ -134,8 +136,8 @@ export function Login() {
             </p>
           )}
 
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             className="w-full py-4 rounded-2xl font-bold text-lg"
             disabled={loading || !isSupabaseConfigured}
           >
@@ -143,7 +145,7 @@ export function Login() {
           </Button>
 
           <div className="space-y-4 pt-2">
-            <Button 
+            <Button
               type="button"
               variant="primary"
               onClick={handleDemoLogin}
@@ -166,14 +168,14 @@ export function Login() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <button 
+            <button
               onClick={() => handleOAuth('google')}
               className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl py-3 transition-colors"
             >
               <Chrome className="w-5 h-5 text-white" />
               <span className="text-sm font-medium text-white">Google</span>
             </button>
-            <button 
+            <button
               onClick={() => handleOAuth('github')}
               className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl py-3 transition-colors"
             >
@@ -185,7 +187,7 @@ export function Login() {
 
         <p className="mt-8 text-center text-sm text-gray-500">
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <button 
+          <button
             onClick={() => setIsSignUp(!isSignUp)}
             className="text-green-400 hover:text-green-300 font-semibold"
           >
