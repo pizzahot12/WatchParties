@@ -109,8 +109,8 @@ export function Servers() {
       if (server.type === 'jellyfin') {
         const baseUrl = server.url.replace(/\/$/, '');
 
-        // Fetch movies and series in a single request to avoid rate limits or timeout on large libraries
-        const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Series&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags`, {
+        // Fetch movies and series. We include 'Episode' as some servers won't return TV Series properly recursively unless requested
+        const response = await fetch(`${baseUrl}/Items?api_key=${server.token}&Recursive=true&IncludeItemTypes=Movie,Series,Episode&Fields=Overview,Genres,PrimaryImageAspectRatio,BackdropImageTags,ImageTags&Limit=10000`, {
           headers: { 'Accept': 'application/json' }
         });
 
@@ -119,10 +119,11 @@ export function Servers() {
         }
 
         const data = await response.json();
-        console.log(`[Sync] Jellyfin returned ${data.TotalRecordCount} total items (Movies + Series)`);
+        console.log(`[Sync] Jellyfin returned ${data.TotalRecordCount} total items (Movies + Series/Episodes)`);
 
         let syncedMovies: MediaInterface[] = [];
         let syncedSeries: MediaInterface[] = [];
+        const seenSeriesIds = new Set(); // Prevent duplicates if gathering from episodes
 
         (data.Items || []).forEach((item: any) => {
           const hasPrimary = item.ImageTags && item.ImageTags.Primary;
@@ -130,19 +131,26 @@ export function Servers() {
           const poster = hasPrimary ? `${baseUrl}/Items/${item.Id}/Images/Primary?api_key=${server.token}` : `https://picsum.photos/seed/jf${item.Id}/400/600`;
           const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster;
 
-          if (item.Type === 'Series') {
-            syncedSeries.push({
-              id: item.Id,
-              title: item.Name || 'Unknown Title',
-              posterUrl: poster,
-              backdropUrl: backdrop,
-              type: 'tv' as const,
-              year: item.ProductionYear || new Date().getFullYear(),
-              rating: item.OfficialRating || 'NR',
-              description: item.Overview || 'No description available.',
-              genres: item.Genres || [],
-              streamUrl: '' // Series don't have a direct stream URL
-            });
+          if (item.Type === 'Series' || item.Type === 'Episode') {
+            // Unify it by parent Series id if it's an episode, to avoid clutter
+            const seriesId = item.Type === 'Episode' ? (item.SeriesId || item.Id) : item.Id;
+            const seriesTitle = item.Type === 'Episode' ? item.SeriesName : item.Name;
+
+            if (!seenSeriesIds.has(seriesId)) {
+              seenSeriesIds.add(seriesId);
+              syncedSeries.push({
+                id: seriesId,
+                title: seriesTitle || 'Unknown TV Show',
+                posterUrl: poster,
+                backdropUrl: backdrop,
+                type: 'tv' as const,
+                year: item.ProductionYear || new Date().getFullYear(),
+                rating: item.OfficialRating || 'NR',
+                description: item.Overview || 'No description available for this show.',
+                genres: item.Genres || [],
+                streamUrl: '' // Top level series don't have direct streams
+              });
+            }
           } else {
             // Treat as Movie
             const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
