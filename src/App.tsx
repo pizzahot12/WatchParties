@@ -20,6 +20,7 @@ import { MovieCard } from './components/MovieCard';
 import { eventBus } from './utils/events';
 import { MediaInterface } from './types';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { GlobalChatBubble } from './components/GlobalChatBubble';
 
 // Media Pages
 function MediaPage({ title, type }: { title: string, type: string }) {
@@ -133,6 +134,7 @@ export default function App() {
           <Route path="/watch/:id" element={<WatchParty />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <GlobalChatBubble />
       </Layout>
     </BrowserRouter>
   );

@@ -56,23 +56,37 @@ export function Rooms() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setLoading(false); return; }
 
-        // Get rooms where user is participant
+        // 1. Get rooms where user is participant
         const { data: participations } = await supabase
             .from('room_participants')
             .select('room_id')
             .eq('user_id', user.id);
+        const myRoomIds = participations ? participations.map(p => p.room_id) : [];
 
-        if (participations && participations.length > 0) {
-            const roomIds = participations.map(p => p.room_id);
-            const { data: rooms } = await supabase
-                .from('rooms')
-                .select('*, room_participants(count)')
-                .in('id', roomIds)
-                .order('created_at', { ascending: false });
-            setMyRooms(rooms || []);
-        } else {
-            setMyRooms([]);
-        }
+        // 2. Get friends
+        const { data: friendships } = await supabase
+            .from('friendships')
+            .select('requester_id, addressee_id')
+            .eq('status', 'accepted')
+            .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
+        const friendIds = friendships
+            ? friendships.map(f => f.requester_id === user.id ? f.addressee_id : f.requester_id)
+            : [];
+
+        // 3. Fetch all active rooms and filter
+        const { data: allRooms } = await supabase
+            .from('rooms')
+            .select('*, room_participants(count)')
+            .order('created_at', { ascending: false });
+
+        const visibleRooms = (allRooms || []).filter(room => {
+            if (myRoomIds.includes(room.id)) return true;
+            if (room.visibility === 'public') return true;
+            if (room.visibility === 'friends' && friendIds.includes(room.host_id)) return true;
+            return false;
+        });
+
+        setMyRooms(visibleRooms);
         setLoading(false);
     };
 
@@ -328,8 +342,8 @@ export function Rooms() {
                                             key={opt.value}
                                             onClick={() => setVisibility(opt.value)}
                                             className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${visibility === opt.value
-                                                    ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                                                    : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10'
+                                                ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                                                : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10'
                                                 }`}
                                         >
                                             <opt.icon className="w-5 h-5" />

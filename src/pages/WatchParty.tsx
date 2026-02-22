@@ -106,6 +106,14 @@ export function WatchParty() {
     const { data: room } = await supabase.from('rooms').select('id').eq('code', roomCode.toUpperCase()).single();
     if (room) {
       await supabase.from('room_participants').delete().eq('room_id', room.id).eq('user_id', userId);
+      // Broadcast the kick event
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'kick',
+          payload: { userId },
+        });
+      }
     }
   };
 
@@ -584,6 +592,13 @@ export function WatchParty() {
           }
         } else {
           setIsRealtimeConnected(false);
+        }
+      })
+      .on('broadcast', { event: 'kick' }, ({ payload }) => {
+        // If the current user was kicked, navigate them away
+        if (currentUser && payload.userId === currentUser.id) {
+          alert("You have been kicked from the room.");
+          window.location.href = '/rooms'; // simple hard redirect for reliability
         }
       });
 
