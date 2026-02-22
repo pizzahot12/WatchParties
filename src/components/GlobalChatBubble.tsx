@@ -205,7 +205,7 @@ export function GlobalChatBubble() {
                                                     className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors text-left"
                                                 >
                                                     <div className="relative">
-                                                        <img src={friend.avatar_url || `https://i.pravatar.cc/150?u=${friend.id}`} className="w-10 h-10 rounded-full object-cover" />
+                                                        <img src={friend.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${friend.id}`} className="w-10 h-10 rounded-full object-cover" />
                                                         <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#121212] ${friend.is_online ? 'bg-green-500' : 'bg-gray-500'}`}></div>
                                                     </div>
                                                     <div className="flex-1 min-w-0">
@@ -227,7 +227,7 @@ export function GlobalChatBubble() {
                                     <button onClick={() => setActiveChat(null)} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
                                         <ChevronLeft className="w-5 h-5" />
                                     </button>
-                                    <img src={activeChat.avatar_url || `https://i.pravatar.cc/150?u=${activeChat.id}`} className="w-8 h-8 rounded-full object-cover" />
+                                    <img src={activeChat.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeChat.id}`} className="w-8 h-8 rounded-full object-cover" />
                                     <div className="flex-1 min-w-0">
                                         <p className="font-bold text-sm text-white truncate">{activeChat.display_name}</p>
                                         <p className={`text-[10px] font-bold uppercase ${activeChat.is_online ? 'text-green-500' : 'text-gray-500'}`}>{activeChat.is_online ? 'Online' : 'Offline'}</p>

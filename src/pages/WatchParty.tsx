@@ -95,7 +95,7 @@ export function WatchParty() {
         setCurrentUser({
           id: user.id,
           name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-          avatar: user.user_metadata?.avatar_url || `https://i.pravatar.cc/150?u=${user.id}`,
+          avatar: user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`,
         });
       }
     });
@@ -582,14 +582,6 @@ export function WatchParty() {
         if (status === 'SUBSCRIBED') {
           setIsRealtimeConnected(true);
           channel.send({ type: 'broadcast', event: 'request-sync', payload: {} });
-          // Track presence
-          if (currentUser) {
-            await channel.track({
-              user_id: currentUser.id,
-              display_name: currentUser.name,
-              avatar_url: currentUser.avatar,
-            });
-          }
         } else {
           setIsRealtimeConnected(false);
         }
@@ -620,6 +612,17 @@ export function WatchParty() {
       setIsRealtimeConnected(false);
     };
   }, [id, plyrInstance]);
+
+  // Ensure presence is tracked even if currentUser loads after Realtime channel connects
+  useEffect(() => {
+    if (isRealtimeConnected && currentUser && channelRef.current) {
+      channelRef.current.track({
+        user_id: currentUser.id,
+        display_name: currentUser.name,
+        avatar_url: currentUser.avatar,
+      }).catch(console.error);
+    }
+  }, [isRealtimeConnected, currentUser, channelRef]);
 
   // Broadcast local play/pause/seek with 500ms debounce
   useEffect(() => {
@@ -907,7 +910,7 @@ export function WatchParty() {
                     roomParticipants.filter(p => p.user_id !== currentUser?.id).map((p) => (
                       <div key={p.user_id} className="flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5">
                         <div className="flex items-center gap-3">
-                          <img src={p.avatar_url || `https://i.pravatar.cc/150?u=${p.user_id}`} alt={p.display_name} className="w-8 h-8 rounded-full" />
+                          <img src={p.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.user_id}`} alt={p.display_name} className="w-8 h-8 rounded-full" />
                           <p className="font-medium text-sm text-white">{p.display_name}</p>
                         </div>
                         <button
@@ -939,7 +942,7 @@ export function WatchParty() {
               {messages.map((msg) => {
                 const isMe = msg.userId === currentUser?.id;
                 const senderName = msg.userName || 'Unknown';
-                const senderAvatar = msg.userAvatar || `https://i.pravatar.cc/150?u=${msg.userId}`;
+                const senderAvatar = msg.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.userId}`;
                 return (
                   <div key={msg.id} className={`flex gap-3 ${isMe ? 'flex-row-reverse' : ''}`}>
                     <img
@@ -975,7 +978,7 @@ export function WatchParty() {
                   <div key={user.user_id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="relative">
-                        <img src={user.avatar_url || `https://i.pravatar.cc/150?u=${user.user_id}`} alt={user.display_name} className="w-10 h-10 rounded-full object-cover bg-white/5" />
+                        <img src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.user_id}`} alt={user.display_name} className="w-10 h-10 rounded-full object-cover bg-white/5" />
                         <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#121212]" />
                       </div>
                       <div>

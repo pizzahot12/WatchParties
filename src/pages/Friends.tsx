@@ -274,7 +274,7 @@ export function Friends() {
     f.display_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const defaultAvatar = (id: string) => `https://i.pravatar.cc/150?u=${id}`;
+  const defaultAvatar = (id: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`;
 
   return (
     <div className="p-6 md:p-12 pb-24 max-w-7xl mx-auto">

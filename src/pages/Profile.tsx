@@ -107,6 +107,12 @@ export function Profile() {
     if (error) {
       alert('Error saving profile: ' + error.message);
     } else if (data.user) {
+      // Sync into public profiles list as well
+      await supabase.from('profiles').update({
+        display_name: editName,
+        avatar_url: newAvatarUrl,
+      }).eq('id', data.user.id);
+
       setUser(data.user);
       setAvatarFile(null);
       setIsEditing(false);
@@ -129,7 +135,7 @@ export function Profile() {
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : 'Recently';
 
-  const currentAvatar = user?.user_metadata?.avatar_url || `https://i.pravatar.cc/150?u=${user?.id || 'me'}`;
+  const currentAvatar = user?.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.id || 'me'}`;
 
   return (
     <div className="p-6 md:p-12 pb-24 max-w-4xl mx-auto">
