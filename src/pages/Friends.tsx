@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { eventBus } from '../utils/events';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface FriendProfile {
   id: string;
@@ -265,11 +266,13 @@ export function Friends() {
     if (user) fetchFriendships(user.id);
   };
 
-  const handleCopyCode = () => {
+  const handleCopyCode = async () => {
     if (myProfile?.friend_code) {
-      navigator.clipboard.writeText(myProfile.friend_code);
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
+      const success = await copyToClipboard(myProfile.friend_code);
+      if (success) {
+        setCopiedCode(true);
+        setTimeout(() => setCopiedCode(false), 2000);
+      }
     }
   };
   // ---- DM Chat Functions ----

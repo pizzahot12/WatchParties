@@ -9,6 +9,7 @@ import 'plyr-react/plyr.css';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { createRoom } from '../hooks/useRoomPresence';
 import Hls from 'hls.js';
+import { copyToClipboard } from '../utils/clipboard';
 
 export function WatchParty() {
   const { id } = useParams();
@@ -1045,10 +1046,12 @@ export function WatchParty() {
                 </h3>
                 <p className="text-gray-400 text-xs mb-3">Share this code with friends to join.</p>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(roomCode);
-                    setCopiedRoomCode(true);
-                    setTimeout(() => setCopiedRoomCode(false), 2000);
+                  onClick={async () => {
+                    const success = await copyToClipboard(roomCode);
+                    if (success) {
+                      setCopiedRoomCode(true);
+                      setTimeout(() => setCopiedRoomCode(false), 2000);
+                    }
                   }}
                   className="w-full flex items-center justify-between px-4 py-3 bg-black/50 hover:bg-black border border-white/10 rounded-xl transition-colors font-mono font-bold tracking-[0.2em] text-green-400"
                 >

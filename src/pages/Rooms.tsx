@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { createRoom, joinRoomByCode, leaveRoom, deleteRoom } from '../hooks/useRoomPresence';
 import { Play, Plus, Hash, Users, Trash2, Copy, Check, LogOut, X, Tv, Globe, ShieldCheck, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { copyToClipboard } from '../utils/clipboard';
 import { MediaInterface } from '../types';
 
 export function Rooms() {
@@ -140,10 +141,12 @@ export function Rooms() {
         fetchRooms();
     };
 
-    const handleCopyCode = (code: string) => {
-        navigator.clipboard.writeText(code);
-        setCopiedCode(code);
-        setTimeout(() => setCopiedCode(null), 2000);
+    const handleCopyCode = async (code: string) => {
+        const success = await copyToClipboard(code);
+        if (success) {
+            setCopiedCode(code);
+            setTimeout(() => setCopiedCode(null), 2000);
+        }
     };
 
     const filteredMedia = allMedia.filter(m =>
