@@ -14,7 +14,7 @@ export function Details() {
   const savedSynchedSeries = localStorage.getItem('streamparty_synced_series');
   const synchronizedSeries = savedSynchedSeries ? JSON.parse(savedSynchedSeries) : [];
 
-  let media = [...trendingMedia, featuredMedia, ...synchronizedMovies, ...synchronizedSeries].filter(Boolean).find(m => m.id === id);
+  let media = [...trendingMedia, featuredMedia, ...synchronizedMovies, ...synchronizedSeries].filter(Boolean).find(m => String(m.id) === String(id));
   if (!media) {
     if (featuredMedia && featuredMedia.id === id) {
       media = featuredMedia;
@@ -112,21 +112,23 @@ export function Details() {
 
                 <div className="space-y-4">
                   {media.seasons[0].episodes.map((ep) => (
-                    <div key={ep.id} className="flex gap-4 p-4 rounded-xl bg-[#1A1A1A] border border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
-                      <div className="w-32 md:w-40 aspect-video rounded-lg overflow-hidden relative flex-shrink-0">
-                        <img src={ep.thumbnailUrl} alt={ep.title} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Play className="w-8 h-8 text-white fill-current" />
+                    <Link key={ep.id} to={`/watch/${ep.id}`} className="block">
+                      <div className="flex gap-4 p-4 rounded-xl bg-[#1A1A1A] border border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
+                        <div className="w-32 md:w-40 aspect-video rounded-lg overflow-hidden relative flex-shrink-0">
+                          <img src={ep.thumbnailUrl} alt={ep.title} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Play className="w-8 h-8 text-white fill-current" />
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0 py-1">
+                          <div className="flex justify-between items-start mb-1">
+                            <h4 className="font-bold text-white truncate pr-4">{ep.episodeNumber}. {ep.title}</h4>
+                            <span className="text-xs text-gray-400">{ep.duration}</span>
+                          </div>
+                          <p className="text-sm text-gray-400 line-clamp-2">{ep.description}</p>
                         </div>
                       </div>
-                      <div className="flex-1 min-w-0 py-1">
-                        <div className="flex justify-between items-start mb-1">
-                          <h4 className="font-bold truncate pr-4">{ep.episodeNumber}. {ep.title}</h4>
-                          <span className="text-xs text-gray-400">{ep.duration}</span>
-                        </div>
-                        <p className="text-sm text-gray-400 line-clamp-2">{ep.description}</p>
-                      </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               </div>

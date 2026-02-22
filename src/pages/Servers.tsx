@@ -122,7 +122,7 @@ export function Servers() {
         console.log(`[Sync] Jellyfin returned ${data.TotalRecordCount} total items (Movies + Series/Episodes)`);
 
         let syncedMovies: MediaInterface[] = [];
-        let syncedSeries: MediaInterface[] = [];
+        let seriesMap = new Map<string, MediaInterface>();
 
         (data.Items || []).forEach((item: any) => {
           const hasPrimary = item.ImageTags && item.ImageTags.Primary;
@@ -137,31 +137,104 @@ export function Servers() {
             ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
             : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`;
 
-          const mediaObj = {
-            id: item.Id,
-            title: item.Name || 'Unknown Title',
-            posterUrl: poster,
-            backdropUrl: backdrop,
-            type: item.Type === 'Episode' ? 'tv' as const : 'movie' as const,
-            year: item.ProductionYear || new Date().getFullYear(),
-            rating: item.OfficialRating || 'NR',
-            description: item.Overview || 'No description available for this item.',
-            genres: item.Genres || [],
-            streamUrl: streamUrl
-          };
+          if (item.Type === 'Episode') {
+            const seriesId = String(item.SeriesId || `series-${item.Id}`);
+            if (!seriesMap.has(seriesId)) {
+              seriesMap.set(seriesId, {
+                id: seriesId,
+                title: item.SeriesName || 'Unknown Series',
+                posterUrl: poster, // fallback
+                backdropUrl: backdrop, // fallback
+                type: 'tv',
+                year: item.ProductionYear || new Date().getFullYear(),
+                rating: item.OfficialRating || 'NR',
+                description: item.Overview || 'No description available.',
+                genres: item.Genres || [],
+                streamUrl: '',
+                seasons: []
+              });
+            }
 
-          if (item.Type === 'Episode' || item.Type === 'Series') { // Treat all Series requests as TV entries
-            if (item.Type === 'Episode') {
-              syncedSeries.push(mediaObj);
+            const series = seriesMap.get(seriesId)!;
+            const seasonNumber = item.ParentIndexNumber || 1;
+            const seasonId = String(item.SeasonId || `season-${seriesId}-${seasonNumber}`);
+
+            let season = series.seasons!.find(s => s.id === seasonId);
+            if (!season) {
+              season = {
+                id: seasonId,
+                seasonNumber: seasonNumber,
+                title: item.SeasonName || `Season ${seasonNumber}`,
+                episodes: []
+              };
+              series.seasons!.push(season);
+            }
+
+            season.episodes.push({
+              id: String(item.Id),
+              episodeNumber: item.IndexNumber || 1,
+              title: item.Name || `Episode ${item.IndexNumber || 1}`,
+              description: item.Overview || '',
+              thumbnailUrl: poster,
+              duration: item.RunTimeTicks ? `${Math.round(item.RunTimeTicks / 10000000 / 60)}m` : '',
+              streamUrl: streamUrl
+            });
+
+          } else if (item.Type === 'Series') {
+            const sid = String(item.Id);
+            if (!seriesMap.has(sid)) {
+              seriesMap.set(sid, {
+                id: sid,
+                title: item.Name || 'Unknown Title',
+                posterUrl: poster,
+                backdropUrl: backdrop,
+                type: 'tv',
+                year: item.ProductionYear || new Date().getFullYear(),
+                rating: item.OfficialRating || 'NR',
+                description: item.Overview || 'No description available for this item.',
+                genres: item.Genres || [],
+                streamUrl: '',
+                seasons: []
+              });
+            } else {
+              // Update explicit series metadata if it arrived after an episode created a stub
+              const series = seriesMap.get(sid)!;
+              series.title = item.Name || series.title;
+              series.posterUrl = poster;
+              series.backdropUrl = backdrop;
+              series.description = item.Overview || series.description;
+              series.genres = item.Genres || series.genres;
             }
           } else {
-            syncedMovies.push(mediaObj);
+            syncedMovies.push({
+              id: String(item.Id),
+              title: item.Name || 'Unknown Title',
+              posterUrl: poster,
+              backdropUrl: backdrop,
+              type: 'movie',
+              year: item.ProductionYear || new Date().getFullYear(),
+              rating: item.OfficialRating || 'NR',
+              description: item.Overview || 'No description available for this item.',
+              genres: item.Genres || [],
+              streamUrl: streamUrl
+            });
           }
         });
 
-        const totalCount = syncedMovies.length + syncedSeries.length;
+        const syncedSeries = Array.from(seriesMap.values());
+        // Sort effectively to keep logical order
+        syncedSeries.forEach(series => {
+          if (series.seasons) {
+            series.seasons.sort((a, b) => a.seasonNumber - b.seasonNumber);
+            series.seasons.forEach(season => {
+              season.episodes.sort((a, b) => a.episodeNumber - b.episodeNumber);
+            });
+          }
+        });
+
+        const totalCount = syncedMovies.length + syncedSeries.reduce((acc, current) => acc + (current.seasons?.reduce((c, s) => c + s.episodes.length, 0) || 0), 0);
         setServers(prev => prev.map(s => s.id === server.id ? { ...s, librarySize: totalCount } : s));
-        console.log(`[Sync] Total: ${syncedMovies.length} movies, ${syncedSeries.length} series`);
+        console.log(`[Sync] Mapped into ${syncedMovies.length} movies, and ${syncedSeries.length} distinct Series entries (Totals to ${totalCount} individual items)`);
 
         localStorage.setItem('streamparty_synced_movies', JSON.stringify(syncedMovies));
         localStorage.setItem('streamparty_synced_series', JSON.stringify(syncedSeries));

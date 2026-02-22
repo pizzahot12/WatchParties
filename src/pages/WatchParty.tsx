@@ -18,7 +18,31 @@ export function WatchParty() {
   const savedSynchedSeries = localStorage.getItem('streamparty_synced_series');
   const synchronizedSeries = savedSynchedSeries ? JSON.parse(savedSynchedSeries) : [];
 
-  let media = [...trendingMedia, featuredMedia, ...libraryMedia, ...synchronizedMovies, ...synchronizedSeries].filter(Boolean).find(m => m.id === id);
+  let media = [...trendingMedia, featuredMedia, ...libraryMedia, ...synchronizedMovies, ...synchronizedSeries].filter(Boolean).find(m => String(m.id) === String(id));
+
+  // If not found at the top level, search inside seasons/episodes
+  if (!media) {
+    for (const seriesObj of synchronizedSeries) {
+      if (seriesObj.seasons) {
+        for (const season of seriesObj.seasons) {
+          const episode = season.episodes.find((ep: any) => String(ep.id) === String(id));
+          if (episode) {
+            media = {
+              ...seriesObj,
+              id: episode.id,
+              title: `${seriesObj.title} - ${episode.episodeNumber}. ${episode.title}`,
+              description: episode.description || seriesObj.description,
+              backdropUrl: episode.thumbnailUrl || seriesObj.backdropUrl,
+              streamUrl: episode.streamUrl
+            };
+            break;
+          }
+        }
+      }
+      if (media) break;
+    }
+  }
+
   if (!media) {
     if (featuredMedia && featuredMedia.id === id) {
       media = featuredMedia;
