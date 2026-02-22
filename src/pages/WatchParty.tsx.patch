@@ -1,0 +1,19 @@
+--- src/pages/WatchParty.tsx
++++ src/pages/WatchParty.tsx
+@@ -148,6 +148,7 @@
+     return () => {
+       supabase.removeChannel(channel);
+       channelRef.current = null;
++      setIsRealtimeConnected(false);
+     };
+   }, [id, plyrInstance, activeTab]);
+ 
+@@ -190,7 +191,7 @@
+     player.on('seeked', handleSeek);
+ 
+     return () => {
+-      if (typeof player.off === 'function') {
++      if (player && typeof player.off === 'function') {
+         player.off('play', handlePlay);
+         player.off('pause', handlePause);
+         player.off('seeked', handleSeek);

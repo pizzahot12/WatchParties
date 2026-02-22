@@ -1,0 +1,418 @@
+import { useState, useEffect, useRef, FormEvent, useMemo } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { featuredMedia, trendingMedia, mockChatMessages, friendsList, libraryMedia } from '../data/mockData';
+import { Button } from '../components/ui/Button';
+import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plyr } from 'plyr-react';
+import 'plyr-react/plyr.css';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
+export function WatchParty() {
+  const { id } = useParams();
+
+  const savedSynchedMovies = localStorage.getItem('streamparty_synced_movies');
+  const synchronizedMovies = savedSynchedMovies ? JSON.parse(savedSynchedMovies) : [];
+
+  let media = [...trendingMedia, featuredMedia, ...libraryMedia, ...synchronizedMovies].filter(Boolean).find(m => m.id === id);
+  if (!media) {
+    if (featuredMedia && featuredMedia.id === id) {
+      media = featuredMedia;
+    } else {
+      media = featuredMedia; // Fallback entirely
+    }
+  }
+
+  const [activeTab, setActiveTab] = useState<'chat' | 'people'>('chat');
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [messages, setMessages] = useState(mockChatMessages);
+  const [newMessage, setNewMessage] = useState('');
+  const [showControls, setShowControls] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const [plyrInstance, setPlyrInstance] = useState<any>(null);
+  const isRemoteAction = useRef(false);
+  const channelRef = useRef<any>(null);
+
+  // Reset unread messages when switching to chat tab
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      setUnreadMessages(0);
+    }
+  }, [activeTab]);
+
+  // Callback ref to capture the Plyr instance when it's ready
+  const setPlayerRef = (node: any) => {
+    if (node) {
+      playerRef.current = node;
+      if (node.plyr && !plyrInstance) {
+        setPlyrInstance(node.plyr);
+      } else if (!node.plyr) {
+        const interval = setInterval(() => {
+          if (node.plyr) {
+            setPlyrInstance(node.plyr);
+            clearInterval(interval);
+          }
+        }, 50);
+        setTimeout(() => clearInterval(interval), 2000);
+      }
+    } else {
+      playerRef.current = null;
+      setPlyrInstance(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase.channel(`watch-party-${id}`, {
+      config: {
+        broadcast: { self: false },
+      },
+    });
+
+    channelRef.current = channel;
+
+    channel
+      .on('broadcast', { event: 'video-state' }, ({ payload }) => {
+        const player = plyrInstance || playerRef.current?.plyr;
+        if (!player) return;
+
+        isRemoteAction.current = true;
+
+        if (payload.action === 'play') {
+          if (typeof player.play === 'function') player.play();
+        } else if (payload.action === 'pause') {
+          if (typeof player.pause === 'function') player.pause();
+        } else if (payload.action === 'seek') {
+          if (typeof player.currentTime !== 'undefined') player.currentTime = payload.time;
+        }
+
+        setTimeout(() => {
+          isRemoteAction.current = false;
+        }, 50);
+      })
+      .on('broadcast', { event: 'chat-message' }, ({ payload }) => {
+        setMessages(prev => [...prev, payload]);
+        if (activeTab !== 'chat') {
+          setUnreadMessages(prev => prev + 1);
+        }
+      })
+      .on('broadcast', { event: 'request-sync' }, () => {
+        // Someone joined and wants the current state
+        const player = plyrInstance || playerRef.current?.plyr;
+        if (player) {
+          channel.send({
+            type: 'broadcast',
+            event: 'sync-response',
+            payload: {
+              time: player.currentTime,
+              playing: player.playing
+            }
+          });
+        }
+      })
+      .on('broadcast', { event: 'sync-response' }, ({ payload }) => {
+        // We joined and received the current state
+        const player = plyrInstance || playerRef.current?.plyr;
+        if (player) {
+          isRemoteAction.current = true;
+          player.currentTime = payload.time;
+          if (payload.playing) {
+            if (typeof player.play === 'function') player.play();
+          } else {
+            if (typeof player.pause === 'function') player.pause();
+          }
+          setTimeout(() => {
+            isRemoteAction.current = false;
+          }, 100);
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setIsRealtimeConnected(true);
+          // Request current state from others when we join
+          channel.send({
+            type: 'broadcast',
+            event: 'request-sync',
+            payload: {}
+          });
+        } else {
+          setIsRealtimeConnected(false);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [id, plyrInstance, activeTab]);
+
+  useEffect(() => {
+    const player = plyrInstance || playerRef.current?.plyr;
+    if (!player || !id || typeof player.on !== 'function') return;
+
+    const handlePlay = () => {
+      if (isRemoteAction.current || !channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'video-state',
+        payload: { action: 'play', time: player.currentTime },
+      });
+    };
+
+    const handlePause = () => {
+      if (isRemoteAction.current || !channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'video-state',
+        payload: { action: 'pause', time: player.currentTime },
+      });
+    };
+
+    const handleSeek = () => {
+      if (isRemoteAction.current || !channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'video-state',
+        payload: { action: 'seek', time: player.currentTime },
+      });
+    };
+
+    player.on('play', handlePlay);
+    player.on('pause', handlePause);
+    player.on('seeked', handleSeek);
+
+    return () => {
+      if (typeof player.off === 'function') {
+        player.off('play', handlePlay);
+        player.off('pause', handlePause);
+        player.off('seeked', handleSeek);
+      }
+    };
+  }, [id, plyrInstance]);
+
+  const isCustomStream = media.streamUrl && media.streamUrl.trim() !== '';
+
+  const videoSource = useMemo(() => {
+    if (isCustomStream) {
+      return {
+        type: 'video' as const,
+        sources: [
+          {
+            src: media.streamUrl,
+            type: media.streamUrl.includes('.m3u8') ? 'application/x-mpegURL' :
+              (media.streamUrl.includes('.mkv') ? 'video/x-matroska' : 'video/mp4'),
+          }
+        ],
+        poster: media.backdropUrl,
+      };
+    } else {
+      return {
+        type: 'video' as const,
+        sources: [
+          {
+            src: 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4',
+            type: 'video/mp4',
+            size: 720,
+          }
+        ],
+        poster: media.backdropUrl,
+      };
+    }
+  }, [media.backdropUrl, media.streamUrl, isCustomStream]);
+
+  const plyrOptions = useMemo(() => ({
+    controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+    settings: ['captions', 'quality', 'speed'],
+    quality: {
+      default: 1080,
+      options: [1080, 720, 576],
+    },
+    captions: {
+      active: true,
+      update: true,
+      language: 'en',
+    },
+  }), []);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const handleSendMessage = (e: FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim()) return;
+
+    const msg = {
+      id: Date.now().toString(),
+      userId: 'me',
+      content: newMessage,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'text' as const
+    };
+
+    setMessages([...messages, msg]);
+    setNewMessage('');
+
+    // Broadcast message to others
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'chat-message',
+        payload: msg
+      });
+    }
+  };
+
+  return (
+    <div className="h-screen w-screen bg-black overflow-hidden flex flex-col md:flex-row">
+      {/* Video Player Section */}
+      <div className="flex-1 relative flex flex-col h-[40vh] md:h-full bg-black">
+        {/* Back Button (Overlay) */}
+        <div className={`absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-start transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+          <Link to={`/details/${media.id}`}>
+            <button className="p-2 rounded-full bg-black/50 text-white hover:bg-white/20 backdrop-blur-sm" aria-label="Back to details">
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+          </Link>
+
+          <div className="flex flex-col items-end gap-2">
+            {isRealtimeConnected && isSupabaseConfigured ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 border border-green-500/30 backdrop-blur-md">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Live Sync Active</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 backdrop-blur-md">
+                <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Demo Mode (No Sync)</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Video Player */}
+        <div
+          className="relative w-full h-full bg-black flex items-center justify-center group [&_.plyr]:w-full [&_.plyr]:h-full [&_.plyr]:flex [&_.plyr]:items-center [&_.plyr]:justify-center [&_.plyr]:bg-black"
+          onMouseEnter={() => setShowControls(true)}
+          onMouseLeave={() => setShowControls(false)}
+        >
+          <Plyr
+            key={media.id}
+            ref={setPlayerRef}
+            source={videoSource}
+            options={plyrOptions}
+          />
+        </div>
+      </div>
+
+      {/* Sidebar (Chat & People) */}
+      <div className="w-full md:w-96 bg-[#121212] border-l border-white/5 flex flex-col h-[60vh] md:h-full">
+        {/* Tabs */}
+        <div className="flex border-b border-white/5">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors relative ${activeTab === 'chat' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
+              }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            Chat
+            {unreadMessages > 0 && activeTab !== 'chat' && (
+              <span className="absolute top-3 right-8 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('people')}
+            className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'people' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
+              }`}
+          >
+            <Users className="w-4 h-4" /> People (4)
+          </button>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#121212]">
+          {activeTab === 'chat' ? (
+            <div className="space-y-4">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`flex gap-3 ${msg.userId === 'me' ? 'flex-row-reverse' : ''}`}>
+                  <img
+                    src={msg.userId === 'me' ? 'https://i.pravatar.cc/150?u=me' : (friendsList.find(u => u.id === msg.userId)?.avatarUrl || 'https://i.pravatar.cc/150')}
+                    alt="Avatar"
+                    className="w-8 h-8 rounded-full object-cover mt-1 flex-shrink-0"
+                  />
+                  <div className={`max-w-[80%] flex flex-col ${msg.userId === 'me' ? 'items-end' : 'items-start'}`}>
+                    <div className={`px-4 py-2 rounded-2xl text-sm ${msg.userId === 'me'
+                      ? 'bg-green-600 text-white rounded-tr-none'
+                      : 'bg-white/10 text-gray-200 rounded-tl-none'
+                      }`}>
+                      {msg.type === 'emoji' ? <span className="text-2xl">{msg.content}</span> : msg.content}
+                    </div>
+                    <span className="text-[10px] text-gray-500 mt-1 px-1">{msg.timestamp}</span>
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {friendsList.map((user) => (
+                <div key={user.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <img src={user.avatarUrl} alt={user.username} className="w-10 h-10 rounded-full" />
+                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#121212]" />
+                    </div>
+                    <span className="font-medium">{user.username}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="p-2 rounded-full bg-white/5 hover:bg-white/10" aria-label={`Mute ${user.username}`}>
+                      <Mic className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Input Area (Only for Chat) */}
+        {activeTab === 'chat' && (
+          <div className="p-4 border-t border-white/5 bg-[#121212]">
+            <form onSubmit={handleSendMessage} className="relative">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                aria-label="Chat message"
+                className="w-full bg-[#1A1A1A] text-white rounded-full py-3 pl-4 pr-12 focus:outline-none focus:ring-2 focus:ring-green-500/50 placeholder-gray-500"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button type="button" className="p-2 text-gray-400 hover:text-white transition-colors" aria-label="Add emoji">
+                  <Smile className="w-5 h-5" />
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newMessage.trim()}
+                  aria-label="Send message"
+                  className="p-2 bg-green-500 text-black rounded-full hover:bg-green-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
