@@ -218,7 +218,7 @@ export function Servers() {
           }
         });
 
-        const syncedSeries = Array.from(seriesMap.values());
+        const syncedSeries = Array.from(seriesMap.values()).filter(s => s.seasons && s.seasons.length > 0 && s.seasons.some(season => season.episodes && season.episodes.length > 0));
         // Sort effectively to keep logical order
         syncedSeries.forEach(series => {
           if (series.seasons) {
