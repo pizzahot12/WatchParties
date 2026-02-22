@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { featuredMedia, trendingMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
@@ -5,6 +6,7 @@ import { Play, Plus, Share2, Clock, Star, ChevronDown } from 'lucide-react';
 
 export function Details() {
   const { id } = useParams();
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
 
   // In a real app, fetch data based on ID
   // For mock, we check both lists
@@ -101,35 +103,52 @@ export function Details() {
             </div>
 
             {/* Series Logic */}
-            {media.type === 'tv' && media.seasons && (
+            {media.type === 'tv' && media.seasons && media.seasons.length > 0 && (
               <div className="mt-12">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold">Episodes</h3>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-lg text-sm hover:bg-white/10">
-                    Season 1 <ChevronDown className="w-4 h-4" />
-                  </button>
+                  {media.seasons.length > 0 && (
+                    <select
+                      className="px-4 py-2 bg-[#1A1A1A] border border-white/5 rounded-lg text-sm hover:bg-white/10 outline-none focus:border-green-500 transition-colors"
+                      value={selectedSeasonId || media.seasons[0].id}
+                      onChange={(e) => setSelectedSeasonId(e.target.value)}
+                    >
+                      {media.seasons.map((season) => (
+                        <option key={season.id} value={season.id}>
+                          {season.title}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div className="space-y-4">
-                  {media.seasons[0].episodes.map((ep) => (
-                    <Link key={ep.id} to={`/watch/${ep.id}`} className="block">
-                      <div className="flex gap-4 p-4 rounded-xl bg-[#1A1A1A] border border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
-                        <div className="w-32 md:w-40 aspect-video rounded-lg overflow-hidden relative flex-shrink-0">
-                          <img src={ep.thumbnailUrl} alt={ep.title} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Play className="w-8 h-8 text-white fill-current" />
+                  {(() => {
+                    const currentSeason = media.seasons!.find(s => s.id === (selectedSeasonId || media.seasons![0].id)) || media.seasons![0];
+                    if (!currentSeason || !currentSeason.episodes || currentSeason.episodes.length === 0) {
+                      return <p className="text-gray-400 text-sm">No episodes available.</p>;
+                    }
+
+                    return currentSeason.episodes.map((ep) => (
+                      <Link key={ep.id} to={`/watch/${ep.id}`} className="block">
+                        <div className="flex gap-4 p-4 rounded-xl bg-[#1A1A1A] border border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
+                          <div className="w-32 md:w-40 aspect-video rounded-lg overflow-hidden relative flex-shrink-0">
+                            <img src={ep.thumbnailUrl} alt={ep.title} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Play className="w-8 h-8 text-white fill-current" />
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0 py-1">
+                            <div className="flex justify-between items-start mb-1">
+                              <h4 className="font-bold text-white truncate pr-4">{ep.episodeNumber}. {ep.title}</h4>
+                              <span className="text-xs text-gray-400">{ep.duration}</span>
+                            </div>
+                            <p className="text-sm text-gray-400 line-clamp-2">{ep.description}</p>
                           </div>
                         </div>
-                        <div className="flex-1 min-w-0 py-1">
-                          <div className="flex justify-between items-start mb-1">
-                            <h4 className="font-bold text-white truncate pr-4">{ep.episodeNumber}. {ep.title}</h4>
-                            <span className="text-xs text-gray-400">{ep.duration}</span>
-                          </div>
-                          <p className="text-sm text-gray-400 line-clamp-2">{ep.description}</p>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    ));
+                  })()}
                 </div>
               </div>
             )}

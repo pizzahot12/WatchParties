@@ -130,14 +130,9 @@ export function Servers() {
           const poster = hasPrimary ? `${baseUrl}/Items/${item.Id}/Images/Primary?api_key=${server.token}` : `https://picsum.photos/seed/jf${item.Id}/400/600`;
           const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster;
 
-          const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
-          const container = containerArray.find((c: string) => c === 'mp4') || containerArray.find((c: string) => c === 'webm') || containerArray[0];
+          const streamUrl = `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}`;
 
-          const streamUrl = ['mp4', 'webm', 'mov'].includes(container)
-            ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
-            : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`;
-
-          const itemType = item.Type || (item.IsFolder ? 'Series' : 'Movie');
+          const itemType = item.Type || 'Movie';
 
           if (itemType === 'Episode') {
             const seriesId = String(item.SeriesId || `series-${item.Id}`);
