@@ -15,7 +15,10 @@ export function WatchParty() {
   const savedSynchedMovies = localStorage.getItem('streamparty_synced_movies');
   const synchronizedMovies = savedSynchedMovies ? JSON.parse(savedSynchedMovies) : [];
 
-  let media = [...trendingMedia, featuredMedia, ...libraryMedia, ...synchronizedMovies].filter(Boolean).find(m => m.id === id);
+  const savedSynchedSeries = localStorage.getItem('streamparty_synced_series');
+  const synchronizedSeries = savedSynchedSeries ? JSON.parse(savedSynchedSeries) : [];
+
+  let media = [...trendingMedia, featuredMedia, ...libraryMedia, ...synchronizedMovies, ...synchronizedSeries].filter(Boolean).find(m => m.id === id);
   if (!media) {
     if (featuredMedia && featuredMedia.id === id) {
       media = featuredMedia;

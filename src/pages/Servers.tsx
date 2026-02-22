@@ -123,7 +123,6 @@ export function Servers() {
 
         let syncedMovies: MediaInterface[] = [];
         let syncedSeries: MediaInterface[] = [];
-        const seenSeriesIds = new Set(); // Prevent duplicates if gathering from episodes
 
         (data.Items || []).forEach((item: any) => {
           const hasPrimary = item.ImageTags && item.ImageTags.Primary;
@@ -131,45 +130,32 @@ export function Servers() {
           const poster = hasPrimary ? `${baseUrl}/Items/${item.Id}/Images/Primary?api_key=${server.token}` : `https://picsum.photos/seed/jf${item.Id}/400/600`;
           const backdrop = hasBackdrop ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?api_key=${server.token}` : poster;
 
-          if (item.Type === 'Series' || item.Type === 'Episode') {
-            // Unify it by parent Series id if it's an episode, to avoid clutter
-            const seriesId = item.Type === 'Episode' ? (item.SeriesId || item.Id) : item.Id;
-            const seriesTitle = item.Type === 'Episode' ? item.SeriesName : item.Name;
+          const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
+          const container = containerArray.find((c: string) => c === 'mp4') || containerArray.find((c: string) => c === 'webm') || containerArray[0];
 
-            if (!seenSeriesIds.has(seriesId)) {
-              seenSeriesIds.add(seriesId);
-              syncedSeries.push({
-                id: seriesId,
-                title: seriesTitle || 'Unknown TV Show',
-                posterUrl: poster,
-                backdropUrl: backdrop,
-                type: 'tv' as const,
-                year: item.ProductionYear || new Date().getFullYear(),
-                rating: item.OfficialRating || 'NR',
-                description: item.Overview || 'No description available for this show.',
-                genres: item.Genres || [],
-                streamUrl: '' // Top level series don't have direct streams
-              });
+          const streamUrl = ['mp4', 'webm', 'mov'].includes(container)
+            ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
+            : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`;
+
+          const mediaObj = {
+            id: item.Id,
+            title: item.Name || 'Unknown Title',
+            posterUrl: poster,
+            backdropUrl: backdrop,
+            type: item.Type === 'Episode' ? 'tv' as const : 'movie' as const,
+            year: item.ProductionYear || new Date().getFullYear(),
+            rating: item.OfficialRating || 'NR',
+            description: item.Overview || 'No description available for this item.',
+            genres: item.Genres || [],
+            streamUrl: streamUrl
+          };
+
+          if (item.Type === 'Episode' || item.Type === 'Series') { // Treat all Series requests as TV entries
+            if (item.Type === 'Episode') {
+              syncedSeries.push(mediaObj);
             }
           } else {
-            // Treat as Movie
-            const containerArray = (item.Container || 'mp4').split(',').map((c: string) => c.trim().toLowerCase());
-            const container = containerArray.find((c: string) => c === 'mp4') || containerArray.find((c: string) => c === 'webm') || containerArray[0];
-
-            syncedMovies.push({
-              id: item.Id,
-              title: item.Name || 'Unknown Title',
-              posterUrl: poster,
-              backdropUrl: backdrop,
-              type: 'movie' as const,
-              year: item.ProductionYear || new Date().getFullYear(),
-              rating: item.OfficialRating || 'NR',
-              description: item.Overview || 'No description available.',
-              genres: item.Genres || [],
-              streamUrl: ['mp4', 'webm', 'mov'].includes(container)
-                ? `${baseUrl}/Videos/${item.Id}/stream.${container}?api_key=${server.token}&Static=true`
-                : `${baseUrl}/Videos/${item.Id}/stream?api_key=${server.token}&Static=true`
-            });
+            syncedMovies.push(mediaObj);
           }
         });
 
