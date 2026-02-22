@@ -91,8 +91,8 @@ export function Home() {
 
   const categories: { label: string; filter: CategoryFilter; path: string }[] = [
     { label: 'All', filter: 'all', path: '/' },
-    { label: 'Movies', filter: 'movies', path: '/' },
-    { label: 'TV Shows', filter: 'tv-shows', path: '/' },
+    { label: 'Movies', filter: 'movies', path: '/movies' },
+    { label: 'TV Shows', filter: 'tv-shows', path: '/tv-shows' },
   ];
 
   return (
@@ -143,9 +143,9 @@ export function Home() {
       <div className="px-6 md:px-12 mt-8 mb-8 overflow-x-auto">
         <div className="flex gap-3 min-w-max">
           {categories.map((cat) => (
-            <button
+            <Link
               key={cat.label}
-              onClick={() => setActiveFilter(cat.filter)}
+              to={cat.path}
               className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${activeFilter === cat.filter
                 ? 'bg-white text-black'
                 : 'bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white'
@@ -158,7 +158,7 @@ export function Home() {
               {cat.filter === 'tv-shows' && series.length > 0 && (
                 <span className="ml-2 text-xs opacity-60">({series.length})</span>
               )}
-            </button>
+            </Link>
           ))}
         </div>
       </div>
