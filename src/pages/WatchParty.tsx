@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, FormEvent, useMemo, useCallback } from 're
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { featuredMedia, trendingMedia, libraryMedia } from '../data/mockData';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw, Settings, Hash, Copy, Check, UserX, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send, Smile, Mic, Video, Users, MessageSquare, Maximize, Minimize, RefreshCw, Settings, Hash, Copy, Check, UserX, Trash2, ListVideo } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plyr } from 'plyr-react';
 import 'plyr-react/plyr.css';
@@ -21,19 +21,27 @@ export function WatchParty() {
   let media = [...trendingMedia, featuredMedia, ...libraryMedia, ...synchronizedMovies, ...synchronizedSeries].filter(Boolean).find(m => String(m.id) === String(id));
 
   // If not found at the top level, search inside seasons/episodes
+  let seriesObjFound: any = null;
+  let seasonObjFound: any = null;
+  let episodeObjFound: any = null;
+
   if (!media) {
     for (const seriesObj of synchronizedSeries) {
       if (seriesObj.seasons) {
         for (const season of seriesObj.seasons) {
           const episode = season.episodes.find((ep: any) => String(ep.id) === String(id));
           if (episode) {
+            seriesObjFound = seriesObj;
+            seasonObjFound = season;
+            episodeObjFound = episode;
             media = {
               ...seriesObj,
               id: episode.id,
               title: `${seriesObj.title} - ${episode.episodeNumber}. ${episode.title}`,
               description: episode.description || seriesObj.description,
               backdropUrl: episode.thumbnailUrl || seriesObj.backdropUrl,
-              streamUrl: episode.streamUrl
+              streamUrl: episode.streamUrl,
+              type: 'tv'
             };
             break;
           }
@@ -61,7 +69,23 @@ export function WatchParty() {
     }
   }
 
-  const [activeTab, setActiveTab] = useState<'chat' | 'people' | 'admin'>('chat');
+  const nextEpisodeId = useMemo(() => {
+    if (seriesObjFound && seasonObjFound && episodeObjFound) {
+      const epIndex = seasonObjFound.episodes.findIndex((e: any) => e.id === episodeObjFound.id);
+      if (epIndex >= 0 && epIndex < seasonObjFound.episodes.length - 1) {
+        return seasonObjFound.episodes[epIndex + 1].id;
+      }
+      const snIndex = seriesObjFound.seasons.findIndex((s: any) => s.id === seasonObjFound.id);
+      if (snIndex >= 0 && snIndex < seriesObjFound.seasons.length - 1) {
+        if (seriesObjFound.seasons[snIndex + 1].episodes.length > 0) {
+          return seriesObjFound.seasons[snIndex + 1].episodes[0].id;
+        }
+      }
+    }
+    return null;
+  }, [seriesObjFound, seasonObjFound, episodeObjFound]);
+
+  const [activeTab, setActiveTab] = useState<'chat' | 'people' | 'admin' | 'episodes'>('chat');
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -128,11 +152,13 @@ export function WatchParty() {
 
   const [subtitleStreams, setSubtitleStreams] = useState<any[]>([]);
   const [selectedSubtitle, setSelectedSubtitle] = useState<number>(-1);
+  const [hasRestoredTime, setHasRestoredTime] = useState(false);
 
   // CRITICAL: Reset ALL stream state when the episode/movie ID changes.
   // Without this, stale sources from the previous episode remain and play instead of the new one.
   useEffect(() => {
     setIsLoadingStream(true);
+    setHasRestoredTime(false);
     setJellyfinSources([]);
     setJellyfinQualitiesLabels({});
     setAudioStreams([]);
@@ -597,11 +623,48 @@ export function WatchParty() {
     // Heartbeat: broadcast position every 3s while playing
     const hb = setInterval(() => {
       const player = plyrInstance || playerRef.current?.plyr;
-      if (player?.playing && channelRef.current && !isFromRemote()) {
-        channelRef.current.send({
-          type: 'broadcast', event: 'heartbeat',
-          payload: { time: player.currentTime, playing: true }
-        });
+      if (player?.playing) {
+        if (channelRef.current && !isFromRemote()) {
+          channelRef.current.send({
+            type: 'broadcast', event: 'heartbeat',
+            payload: { time: player.currentTime, playing: true }
+          });
+        }
+
+        // Save progress for "Continue Watching"
+        if (media && player.currentTime > 5) {
+          const historyObj = {
+            mediaId: episodeObjFound ? episodeObjFound.id : media.id, // Explicitly use episode ID if TV
+            seriesId: seriesObjFound?.id, // Useful for grouping/replacing
+            title: media.title,
+            type: media.type,
+            backdropUrl: media.backdropUrl,
+            posterUrl: media.posterUrl,
+            currentTime: player.currentTime,
+            duration: player.duration || 0,
+            updatedAt: Date.now()
+          };
+
+          try {
+            let history = JSON.parse(localStorage.getItem('streamparty_continue_watching') || '[]');
+            // If TV, remove previous history for the same series
+            if (historyObj.type === 'tv' && historyObj.seriesId) {
+              history = history.filter((h: any) => h.seriesId !== historyObj.seriesId);
+            } else {
+              history = history.filter((h: any) => h.mediaId !== historyObj.mediaId);
+            }
+
+            // Only save if not at the very end (> 95% is considered finished for some, but let's say left > 10s)
+            if (!player.duration || player.duration - player.currentTime > 30) {
+              history.unshift(historyObj);
+              if (history.length > 20) history.pop();
+              localStorage.setItem('streamparty_continue_watching', JSON.stringify(history));
+            } else {
+              // It's finished, keep it removed from continue watching
+              localStorage.setItem('streamparty_continue_watching', JSON.stringify(history));
+            }
+          } catch (e) { }
+        }
       }
     }, 3000);
 
@@ -612,6 +675,33 @@ export function WatchParty() {
       setIsRealtimeConnected(false);
     };
   }, [id, plyrInstance]);
+
+  // Restore continue watching on first play
+  useEffect(() => {
+    const player = plyrInstance || playerRef.current?.plyr;
+    if (player && media && !hasRestoredTime) {
+      const historyStr = localStorage.getItem('streamparty_continue_watching');
+      if (historyStr) {
+        try {
+          const history = JSON.parse(historyStr);
+          const targetId = episodeObjFound ? episodeObjFound.id : media.id;
+          const item = history.find((h: any) => h.mediaId === targetId);
+          if (item && item.currentTime > 5) {
+            const onPlaying = () => {
+              // Only hop forward if we're near the beginning to prevent looping
+              if (player.currentTime < 5) {
+                player.currentTime = item.currentTime;
+              }
+              // Unbind
+              player.off('playing', onPlaying);
+            };
+            player.on('playing', onPlaying);
+          }
+        } catch (e) { }
+      }
+      setHasRestoredTime(true);
+    }
+  }, [plyrInstance, media, episodeObjFound, hasRestoredTime]);
 
   // Ensure presence is tracked even if currentUser loads after Realtime channel connects
   useEffect(() => {
@@ -815,6 +905,12 @@ export function WatchParty() {
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Demo Mode (No Sync)</span>
               </div>
             )}
+
+            {nextEpisodeId && (
+              <a href={`/watch/${nextEpisodeId}?room=${roomCode}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500 hover:bg-blue-400 text-black shadow-lg shadow-blue-500/20 backdrop-blur-md transition-all font-bold text-[10px] uppercase tracking-widest mt-2 cursor-pointer">
+                Next <ArrowLeft className="w-3 h-3 rotate-180" />
+              </a>
+            )}
           </div>
         </div>
 
@@ -870,6 +966,15 @@ export function WatchParty() {
                 }`}
             >
               <Settings className="w-4 h-4" /> Admin
+            </button>
+          )}
+          {seriesObjFound && (
+            <button
+              onClick={() => setActiveTab('episodes')}
+              className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'episodes' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
+                }`}
+            >
+              <ListVideo className="w-4 h-4" /> Ep
             </button>
           )}
         </div>
@@ -929,6 +1034,37 @@ export function WatchParty() {
                   )}
                 </div>
               </div>
+            </div>
+          ) : activeTab === 'episodes' ? (
+            <div className="space-y-6">
+              <h3 className="font-display font-bold text-lg mb-4 text-white">Episodes</h3>
+              {seriesObjFound?.seasons?.map((season: any) => (
+                <div key={season.id} className="bg-black/40 border border-white/5 rounded-2xl p-4 mb-4">
+                  <h4 className="font-bold text-green-400 mb-3 uppercase tracking-widest text-xs">{season.title}</h4>
+                  <div className="space-y-2">
+                    {season.episodes?.map((ep: any) => {
+                      const isCurrent = ep.id === episodeObjFound?.id;
+                      return (
+                        <a
+                          key={ep.id}
+                          href={`/watch/${ep.id}?room=${roomCode}`}
+                          className={`block p-3 rounded-xl transition-all border ${isCurrent ? 'bg-white/10 border-white/20 shadow-lg' : 'bg-[#1A1A1A] hover:bg-white/5 border-white/5'}`}
+                        >
+                          <div className="flex gap-4 items-center">
+                            <div className={`font-bold text-xs ${isCurrent ? 'text-green-400' : 'text-gray-500'}`}>
+                              {ep.episodeNumber}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={`font-bold text-sm truncate ${isCurrent ? 'text-white' : 'text-gray-300'}`}>{ep.title}</p>
+                              {ep.duration && <p className="text-[10px] text-gray-500 mt-1 uppercase font-semibold">{ep.duration}</p>}
+                            </div>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : activeTab === 'chat' ? (
             <div className="space-y-4">

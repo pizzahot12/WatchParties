@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { featuredMedia, trendingMedia as defaultTrendingMedia } from '../data/mockData';
 import { MovieCard } from '../components/MovieCard';
 import { Button } from '../components/ui/Button';
-import { Play, Info, ChevronRight, Server, Plus } from 'lucide-react';
+import { Play, Info, ChevronRight, Server, Plus, X, Clock } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { eventBus } from '../utils/events';
 import { MediaInterface } from '../types';
@@ -12,6 +12,7 @@ type CategoryFilter = 'all' | 'movies' | 'tv-shows';
 export function Home() {
   const [movies, setMovies] = useState<MediaInterface[]>([]);
   const [series, setSeries] = useState<MediaInterface[]>([]);
+  const [continueWatching, setContinueWatching] = useState<any[]>([]);
   const [activeFilter, setActiveFilter] = useState<CategoryFilter>('all');
   const location = useLocation();
 
@@ -38,8 +39,20 @@ export function Home() {
       setSeries(data);
     });
 
+    try {
+      setContinueWatching(JSON.parse(localStorage.getItem('streamparty_continue_watching') || '[]'));
+    } catch (e) { }
+
     return () => { unsubMovies(); unsubSeries(); };
   }, []);
+
+  const removeContinueWatching = (e: React.MouseEvent, targetId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const updated = continueWatching.filter(i => i.mediaId !== targetId);
+    setContinueWatching(updated);
+    localStorage.setItem('streamparty_continue_watching', JSON.stringify(updated));
+  };
 
   // Determine active filter from URL path or state
   useEffect(() => {
@@ -162,6 +175,48 @@ export function Home() {
           ))}
         </div>
       </div>
+
+      {/* Continue Watching Section */}
+      {activeFilter === 'all' && continueWatching.length > 0 && (
+        <section className="px-6 md:px-12 mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-display font-bold flex items-center gap-3">
+              <Clock className="w-5 h-5 text-green-500" />
+              Continue Watching
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+            {continueWatching.map((item) => (
+              <Link to={`/watch/${item.mediaId}`} key={item.mediaId} className="group relative block bg-[#1A1A1A] rounded-2xl border border-white/5 overflow-hidden transition-all hover:border-white/10 hover:shadow-2xl hover:scale-[1.02]">
+                <div className="relative aspect-video">
+                  <img src={item.backdropUrl || item.posterUrl} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-transparent to-transparent opacity-90" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="w-12 h-12 rounded-full bg-green-500/90 text-black flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                      <Play className="w-5 h-5 fill-current" />
+                    </div>
+                  </div>
+                  <button onClick={(e) => removeContinueWatching(e, item.mediaId)} className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-500/80 rounded-full text-white opacity-0 group-hover:opacity-100 transition-all z-10">
+                    <X className="w-4 h-4" />
+                  </button>
+                  <div className="absolute bottom-3 left-3 right-3 text-white">
+                    <p className="font-bold text-sm mb-1 truncate">{item.title}</p>
+                    <div className="flex justify-between items-center text-xs text-gray-400 font-medium">
+                      <span>Left at {Math.floor(item.currentTime / 60)}m</span>
+                      <span>{item.duration ? Math.floor(item.duration / 60) + 'm' : ''}</span>
+                    </div>
+                    {item.duration > 0 && (
+                      <div className="w-full bg-white/20 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div className="bg-green-500 h-full" style={{ width: `${Math.min(100, (item.currentTime / item.duration) * 100)}%` }}></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Movies Section */}
       {(activeFilter === 'all' || activeFilter === 'movies') && movies.length > 0 && (

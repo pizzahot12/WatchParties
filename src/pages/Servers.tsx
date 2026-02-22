@@ -99,7 +99,14 @@ export function Servers() {
 
   const deleteServer = (id: string) => {
     if (confirm('Are you sure you want to disconnect this server?')) {
-      setServers(servers.filter(s => s.id !== id));
+      const remainingServers = servers.filter(s => s.id !== id);
+      setServers(remainingServers);
+      if (remainingServers.length === 0) {
+        localStorage.removeItem('streamparty_synced_movies');
+        localStorage.removeItem('streamparty_synced_series');
+        eventBus.emit('movies-synced', []);
+        eventBus.emit('series-synced', []);
+      }
     }
   };
 
