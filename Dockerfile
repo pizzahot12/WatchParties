@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:20-bullseye-slim
 
 WORKDIR /app
 
@@ -9,6 +9,7 @@ COPY . .
 RUN npm run build
 
 ENV NODE_ENV=production
+ENV PORT=3000
 EXPOSE 3000
 
 CMD ["npx", "tsx", "server.ts"]

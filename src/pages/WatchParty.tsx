@@ -212,7 +212,9 @@ export function WatchParty() {
 
     const fetchJellyfinExtras = async () => {
       try {
-        const response = await fetch(`${baseUrl}/Items?api_key=${apiKey}&Ids=${media.id}&Fields=MediaSources`);
+        const response = await fetch(`${baseUrl}/Items?api_key=${apiKey}&Ids=${media.id}&Fields=MediaSources`, {
+          headers: { 'Accept': 'application/json' }
+        });
         console.log(`[Watch] Metadata check for ${media.title} (ID: ${media.id}):`, response.status);
         if (!response.ok) {
           setIsLoadingStream(false);
@@ -273,6 +275,10 @@ export function WatchParty() {
           `&DeviceId=watchparty` +
           `&PlaySessionId=${sessionId}` +
           `&VideoCodec=h264` +
+          `&TranscodingMaxAudioChannels=2` +
+          `&SegmentContainer=ts` +
+          `&MinSegments=1` +
+          `&BreakOnNonKeyFrames=true` +
           audioParam +
           subParam
         );
