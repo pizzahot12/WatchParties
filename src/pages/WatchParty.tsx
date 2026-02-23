@@ -317,16 +317,18 @@ export function WatchParty() {
 
         setJellyfinQualitiesLabels(labels);
         setJellyfinSources(qualitiesCounted);
-        // Mark stream as ready — overlay will hide
         setIsLoadingStream(false);
       } catch (err) {
-        console.error('Failed to fetch extras', err);
-        // Even on error mark as done so overlay doesn't stay forever
+        console.error('[Watch] Failed to fetch Jellyfin extras:', err);
+        // Fallback: Use the raw stream URL but ensure it has the API key
+        setJellyfinSources([]);
         setIsLoadingStream(false);
       }
     };
     fetchJellyfinExtras();
   }, [media.id, media.streamUrl, selectedAudio, selectedSubtitle]);
+
+  const [forceDirectPlay, setForceDirectPlay] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -832,18 +834,8 @@ export function WatchParty() {
   // isLoadingStream is managed via useState/useEffect above, no extra computed value needed
 
   const videoSource = useMemo(() => {
-    // Jellyfin HLS sources ready — use them (best: quality selector, subtitles, audio)
-    if (jellyfinSources.length > 0) {
-      return {
-        type: 'video' as const,
-        sources: jellyfinSources,
-        poster: media.backdropUrl,
-      };
-    }
-
-    // Jellyfin is still loading — use the raw streamUrl as a hold-over
-    // This avoids showing a test video while the HLS manifest is being built
-    if (isCustomStream) {
+    // If user forced direct play or Jellyfin HLS failed/not available
+    if (forceDirectPlay || (jellyfinSources.length === 0 && isCustomStream)) {
       return {
         type: 'video' as const,
         sources: [
@@ -857,13 +849,22 @@ export function WatchParty() {
       };
     }
 
-    // No stream source at all — empty placeholder (do not play demo)
+    // Jellyfin HLS sources ready — use them
+    if (jellyfinSources.length > 0) {
+      return {
+        type: 'video' as const,
+        sources: jellyfinSources,
+        poster: media.backdropUrl,
+      };
+    }
+
+    // No stream source at all
     return {
       type: 'video' as const,
       sources: [],
       poster: media.backdropUrl,
     };
-  }, [media.backdropUrl, media.streamUrl, isCustomStream, jellyfinSources]);
+  }, [media.backdropUrl, media.streamUrl, isCustomStream, jellyfinSources, forceDirectPlay]);
 
   const plyrOptions = useMemo(() => ({
     controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
@@ -1024,15 +1025,13 @@ export function WatchParty() {
           >
             <Users className="w-4 h-4" /> People ({roomParticipants.length || 1})
           </button>
-          {isHost && (
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'admin' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
-                }`}
-            >
-              <Settings className="w-4 h-4" /> Admin
-            </button>
-          )}
+          <button
+            onClick={() => setActiveTab('admin')}
+            className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'admin' ? 'text-white border-b-2 border-green-500 bg-white/5' : 'text-gray-500 hover:text-gray-300'
+              }`}
+          >
+            <Settings className="w-4 h-4" /> Ajustes
+          </button>
           {seriesObjFound && (
             <button
               onClick={() => setActiveTab('episodes')}
@@ -1059,61 +1058,94 @@ export function WatchParty() {
                 {isCreatingRoom ? 'Creando...' : 'Crear Sala Pública'}
               </Button>
             </div>
-          ) : activeTab === 'admin' && isHost ? (
+          ) : activeTab === 'admin' ? (
             <div className="space-y-6">
+              {/* Playback Troubleshooting */}
               <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4">
                 <h3 className="text-white font-bold mb-1 flex items-center gap-2">
-                  <Hash className="w-4 h-4 text-green-500" />
-                  Room Code
+                  <RefreshCw className="w-4 h-4 text-orange-500" />
+                  Solución de Problemas
                 </h3>
-                <p className="text-gray-400 text-xs mb-3">Share this code with friends to join.</p>
-                <button
-                  onClick={async () => {
-                    const success = await copyToClipboard(roomCode);
-                    if (success) {
-                      setCopiedRoomCode(true);
-                      setTimeout(() => setCopiedRoomCode(false), 2000);
-                    }
-                  }}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-black/50 hover:bg-black border border-white/10 rounded-xl transition-colors font-mono font-bold tracking-[0.2em] text-green-400"
-                >
-                  {roomCode}
-                  {copiedRoomCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4 text-gray-500" />}
-                </button>
-              </div>
-
-              <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4">
-                <h3 className="text-white font-bold mb-1 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-blue-500" />
-                  Manage Users
-                </h3>
-                <p className="text-gray-400 text-xs mb-4">You can remove users from your room.</p>
-                <div className="space-y-2">
-                  {roomParticipants.filter(p => p.user_id !== currentUser?.id).length === 0 ? (
-                    <p className="text-xs text-gray-500 text-center py-4">No other users in the room.</p>
-                  ) : (
-                    roomParticipants.filter(p => p.user_id !== currentUser?.id).map((p) => (
-                      <div key={p.user_id} className="flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5">
-                        <div className="flex items-center gap-3">
-                          <img src={p.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.user_id}`} alt={p.display_name} className="w-8 h-8 rounded-full" />
-                          <p className="font-medium text-sm text-white">{p.display_name}</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Kick ${p.display_name} from the room?`)) {
-                              handleKickUser(p.user_id);
-                            }
-                          }}
-                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
-                          title="Kick User"
-                        >
-                          <UserX className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
-                  )}
+                <p className="text-gray-400 text-xs mb-4">Si el video no carga (como en Chihiro), prueba estas opciones:</p>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => {
+                      setForceDirectPlay(!forceDirectPlay);
+                      alert(forceDirectPlay ? "Volviendo a modo Transcode (HLS)" : "Activado Modo Directo. Si el navegador soporta el codec original, cargará ahora.");
+                    }}
+                    className={`w-full py-2.5 rounded-xl border text-xs font-bold transition-all ${forceDirectPlay
+                      ? 'bg-orange-500/20 border-orange-500/50 text-orange-400'
+                      : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                      }`}
+                  >
+                    {forceDirectPlay ? "⚡ Desactivar Reproducción Directa" : "⚡ Forzar Reproducción Directa"}
+                  </button>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10 text-xs font-bold"
+                  >
+                    🔄 Recargar Aplicación
+                  </button>
                 </div>
               </div>
+
+              {isHost && roomCode && (
+                <>
+                  <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4">
+                    <h3 className="text-white font-bold mb-1 flex items-center gap-2">
+                      <Hash className="w-4 h-4 text-green-500" />
+                      Room Code
+                    </h3>
+                    <p className="text-gray-400 text-xs mb-3">Share this code with friends to join.</p>
+                    <button
+                      onClick={async () => {
+                        const success = await copyToClipboard(roomCode);
+                        if (success) {
+                          setCopiedRoomCode(true);
+                          setTimeout(() => setCopiedRoomCode(false), 2000);
+                        }
+                      }}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-black/50 hover:bg-black border border-white/10 rounded-xl transition-colors font-mono font-bold tracking-[0.2em] text-green-400"
+                    >
+                      {roomCode}
+                      {copiedRoomCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4 text-gray-500" />}
+                    </button>
+                  </div>
+
+                  <div className="bg-[#1A1A1A] border border-white/5 rounded-2xl p-4 mt-6">
+                    <h3 className="text-white font-bold mb-1 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-500" />
+                      Manage Users
+                    </h3>
+                    <p className="text-gray-400 text-xs mb-4">You can remove users from your room.</p>
+                    <div className="space-y-2">
+                      {roomParticipants.filter(p => p.user_id !== currentUser?.id).length === 0 ? (
+                        <p className="text-xs text-gray-500 text-center py-4">No other users in the room.</p>
+                      ) : (
+                        roomParticipants.filter(p => p.user_id !== currentUser?.id).map((p) => (
+                          <div key={p.user_id} className="flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5">
+                            <div className="flex items-center gap-3">
+                              <img src={p.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.user_id}`} alt={p.display_name} className="w-8 h-8 rounded-full" />
+                              <p className="font-medium text-sm text-white">{p.display_name}</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Kick ${p.display_name} from the room?`)) {
+                                  handleKickUser(p.user_id);
+                                }
+                              }}
+                              className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                              title="Kick User"
+                            >
+                              <UserX className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : activeTab === 'episodes' ? (
             <div className="space-y-6">
