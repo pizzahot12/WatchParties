@@ -206,14 +206,27 @@ export function WatchParty() {
     const baseUrl = match[1];
     const apiKey = match[2];
 
+    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+      console.warn('[Watch] WARNING: Stream URL uses localhost/127.0.0.1. This will NOT work if you are accessing the app from another device (like your phone or Orange Pi).');
+    }
+
     const fetchJellyfinExtras = async () => {
       try {
         const response = await fetch(`${baseUrl}/Items?api_key=${apiKey}&Ids=${media.id}&Fields=MediaSources`);
-        if (!response.ok) return;
+        console.log(`[Watch] Metadata check for ${media.title} (ID: ${media.id}):`, response.status);
+        if (!response.ok) {
+          setIsLoadingStream(false);
+          return;
+        }
         const data = await response.json();
         const item = data.Items?.[0];
-        if (!item || !item.MediaSources || !item.MediaSources[0]) return;
+        if (!item || !item.MediaSources || !item.MediaSources[0]) {
+          console.warn('[Watch] No MediaSources found for this item in Jellyfin.');
+          setIsLoadingStream(false);
+          return;
+        }
 
+        console.log('[Watch] Jellyfin Item Metadata:', item);
         const source = item.MediaSources[0];
 
         // Fetch Subtitle streams for burn-in (no VTT — that causes CORS errors from localhost)
@@ -248,16 +261,19 @@ export function WatchParty() {
         const subParam = activeSub > -1
           ? `&SubtitleStreamIndex=${activeSub}&SubtitleMethod=Encode`
           : '';
+
+        const audioParam = targetAudio !== undefined
+          ? `&AudioStreamIndex=${targetAudio}&AudioCodec=aac&TranscodingMaxAudioChannels=2`
+          : '';
+
         const hlsBase = (
           `${baseUrl}/Videos/${item.Id}/master.m3u8` +
           `?api_key=${apiKey}` +
-          `&MediaSourceId=${item.Id}` +
+          `&MediaSourceId=${source.Id}` +
           `&DeviceId=watchparty` +
           `&PlaySessionId=${sessionId}` +
           `&VideoCodec=h264` +
-          `&AudioCodec=aac` +
-          `&AudioStreamIndex=${targetAudio}` +
-          `&TranscodingMaxAudioChannels=2` +
+          audioParam +
           subParam
         );
 
